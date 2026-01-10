@@ -1,0 +1,86 @@
+[
+  {
+    "name": "N\u00c3\u00a4hzimmer",
+    "type": "SoundTouch 10",
+    "ip": "192.168.50.34",
+    "mac": "506583625D9D",
+    "deviceID": "506583625D9D",
+    "margeAccount": "4807327",
+    "components": [
+      {
+        "category": "SCM",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "I6311895902739342000020"
+      },
+      {
+        "category": "PackagedProduct",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "069236P63190103AE"
+      }
+    ],
+    "url": "http://192.168.50.34:8090"
+  },
+  {
+    "name": "K\u00c3\u00bcche",
+    "type": "SoundTouch 10",
+    "ip": "192.168.50.19",
+    "mac": "F45EAB2E1B67",
+    "deviceID": "F45EAB2E1B67",
+    "margeAccount": "4807327",
+    "components": [
+      {
+        "category": "SCM",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "I6310613102739342000020"
+      },
+      {
+        "category": "PackagedProduct",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "069236P63190134AE"
+      }
+    ],
+    "url": "http://192.168.50.19:8090"
+  },
+  {
+    "name": "Wohnzimmer",
+    "type": "SoundTouch 30",
+    "ip": "192.168.50.156",
+    "mac": "A81B6A632A40",
+    "deviceID": "A81B6A632A40",
+    "margeAccount": "4807327",
+    "components": [
+      {
+        "category": "SCM",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "U6296079701720048000440"
+      },
+      {
+        "category": "PackagedProduct",
+        "version": "",
+        "serialNumber": "069447962980499AE"
+      }
+    ],
+    "url": "http://192.168.50.156:8090"
+  },
+  {
+    "name": "Bose SoundTouch F16EAE",
+    "type": "SoundTouch 10",
+    "ip": "192.168.50.184",
+    "mac": "2C6B7DF16EAE",
+    "deviceID": "2C6B7DF16EAE",
+    "margeAccount": "",
+    "components": [
+      {
+        "category": "SCM",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "P8242657902739342030120"
+      },
+      {
+        "category": "PackagedProduct",
+        "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29",
+        "serialNumber": "069231P82511497AE"
+      }
+    ],
+    "url": "http://192.168.50.184:8090"
+  }
+]
