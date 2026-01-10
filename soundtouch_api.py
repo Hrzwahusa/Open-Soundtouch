@@ -680,7 +680,7 @@ async def play_media_on_speaker(request: PlayMediaRequest, port: int = 8090):
     
     # Send to speaker
     controller = SoundTouchController(request.device_ip, port=port)
-    success = controller.select_source("INTERNET_RADIO", full_url)
+    success = controller.select_source("LOCAL_INTERNET_RADIO", full_url)
     
     if not success:
         raise HTTPException(status_code=400, detail="Failed to play on speaker")

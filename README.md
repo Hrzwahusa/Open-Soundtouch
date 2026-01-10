@@ -486,7 +486,7 @@ controller.select_source("AUX", "AUX")
 controller.select_source("BLUETOOTH")
 controller.select_source("SPOTIFY", "user@spotify")
 controller.select_source("TUNEIN")
-controller.select_source("INTERNET_RADIO")
+controller.select_source("LOCAL_INTERNET_RADIO")
 
 # Prüfen ob erfolgreich
 if controller.select_source("AUX"):
