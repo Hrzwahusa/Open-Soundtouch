@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from typing import Callable, Optional, Dict, Any
 from queue import Queue
 import time
+import socket
 
 
 class SoundTouchWebSocket:
@@ -222,7 +223,20 @@ class SoundTouchWebSocket:
             return True
         
         try:
-            websocket.enableTrace(False)
+            # Verify the websocket-client provides WebSocketApp
+            if not hasattr(websocket, 'WebSocketApp'):
+                print("DEBUG: WebSocket client not available: 'websocket' module lacks WebSocketApp. Ensure 'websocket-client' is installed and on PYTHONPATH.")
+                return False
+            # Quick TCP reachability check to avoid long timeouts
+            try:
+                sock = socket.create_connection((self.device_ip, self.port), timeout=1.5)
+                sock.close()
+            except Exception as e:
+                print(f"DEBUG: WebSocket port {self.port} not reachable: {e}. Device may not support WebSocket or port is blocked.")
+                return False
+            # Enable internal websocket-client trace logs if available; ignore if missing
+            if hasattr(websocket, 'enableTrace'):
+                websocket.enableTrace(False)
             print(f"DEBUG: Connecting to {self.ws_url} with subprotocol 'gabbo'")
             
             self.ws = websocket.WebSocketApp(
@@ -273,6 +287,10 @@ class SoundTouchWebSocket:
         if self.ws:
             self.ws.close()
         self.connected = False
+    
+    def close(self):
+        """Alias for disconnect."""
+        self.disconnect()
     
     def add_callback(self, event_type: str, callback: Callable):
         """

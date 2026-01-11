@@ -31,5 +31,6 @@ Thumbs.db
 htmlcov/
 
 # Local audio/test artifacts
-test.wav
-test.mp3
+./test_music/*
+./minidlna/*
+wireshark_log.pcapng

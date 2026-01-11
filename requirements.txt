@@ -4,3 +4,13 @@ uvicorn>=0.21.0
 pysmb>=1.2.9.1
 aiofiles>=23.0.0
 websocket-client>=1.0.0
+netifaces>=0.11.0
+
+# GUI Dependencies
+# For Linux/Windows GUI (PyQt5)
+PyQt5>=5.15.0
+PyQt5-multimedia>=5.15.0  # For media playback
+
+# For Android GUI (Kivy)
+kivy>=2.2.0
+buildozer>=1.5.0  # For building Android APK

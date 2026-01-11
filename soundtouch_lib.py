@@ -11,6 +11,7 @@ import requests
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
 from typing import List, Dict, Optional
+from dlna_helper import DLNAHelper
 
 # Suppress SSL warnings
 requests.packages.urllib3.disable_warnings()
@@ -118,33 +119,55 @@ class SoundTouchDiscovery:
         
         return False
     
-    def scan(self, max_threads: int = 50) -> List[Dict]:
+    def scan(self, max_threads: int = 50, timeout: int = 60) -> List[Dict]:
         """
         Scan the network for SoundTouch devices.
         
         Args:
             max_threads: Maximum number of concurrent threads
+            timeout: Maximum time to wait for all threads (seconds)
             
         Returns:
             List of discovered devices
         """
         try:
+            import time
             network = ipaddress.ip_network(self.network, strict=False)
             ips = list(network.hosts())
             
+            print(f"Scanning {len(ips)} IPs in {self.network}...")
+            
             threads = []
+            start_time = time.time()
+            
             for ip in ips:
+                # Check timeout
+                if time.time() - start_time > timeout:
+                    print(f"Scan timeout reached after {timeout}s")
+                    break
+                
+                # Wait if too many threads
+                wait_count = 0
                 while len(threading.enumerate()) > max_threads + 1:
-                    pass
+                    time.sleep(0.1)
+                    wait_count += 1
+                    # Prevent infinite wait
+                    if wait_count > 50:  # 5 seconds max wait
+                        break
                 
                 thread = threading.Thread(target=self._scan_host, args=(str(ip),))
                 thread.daemon = True
                 thread.start()
                 threads.append(thread)
             
+            # Wait for threads with timeout
+            remaining_time = timeout - (time.time() - start_time)
             for thread in threads:
-                thread.join()
+                if remaining_time <= 0:
+                    break
+                thread.join(timeout=max(0.5, remaining_time / max(len(threads), 1)))
             
+            print(f"Scan complete. Found {len(self.devices)} devices.")
             return self.devices
         
         except ValueError:
@@ -180,18 +203,80 @@ class SoundTouchController:
         'thumbsdown': 'THUMBS_DOWN',
     }
     
-    def __init__(self, ip: str, port: int = 8090):
+    def __init__(self, ip: str, port: int = 8090, timeout: int = 5):
         """
         Initialize the controller.
         
         Args:
             ip: IP address of the SoundTouch device
             port: Port (default: 8090)
+            timeout: HTTP timeout in seconds (default: 5)
         """
         self.ip = ip
         self.port = port
         self.base_url = f"http://{ip}:{port}"
-        self.timeout = 5
+        self.timeout = timeout
+        self.dlna_port = 8091  # Bose DLNA/UPnP AVTransport port
+
+    def is_reachable(self, timeout: int = 2) -> bool:
+        """
+        Quick check if device is reachable.
+        
+        Args:
+            timeout: Timeout in seconds (default: 2)
+            
+        Returns:
+            True if device responds to /info request
+        """
+        try:
+            url = f"{self.base_url}/info"
+            response = requests.get(url, timeout=timeout, verify=False)
+            return response.status_code == 200
+        except Exception:
+            return False
+    
+    def get_info(self) -> Optional[Dict]:
+        """Get device info from /info.
+        Returns parsed dict with name, type, ip, mac and components.
+        """
+        try:
+            url = f"{self.base_url}/info"
+            response = requests.get(url, timeout=self.timeout, verify=False)
+            if response.status_code != 200:
+                return None
+
+            root = ET.fromstring(response.text)
+
+            name = root.findtext('name', 'Unknown')
+            device_type = root.findtext('type', 'Unknown')
+            device_id = root.get('deviceID', 'Unknown')
+
+            network_info = root.find('networkInfo')
+            mac_address = 'Unknown'
+            if network_info is not None:
+                mac_address = network_info.findtext('macAddress', 'Unknown')
+
+            components = []
+            for component in root.findall('components/component'):
+                comp_data = {
+                    'category': component.findtext('componentCategory', ''),
+                    'version': component.findtext('softwareVersion', ''),
+                    'serialNumber': component.findtext('serialNumber', '')
+                }
+                if comp_data['category']:
+                    components.append(comp_data)
+
+            # verify type contains "SoundTouch" or known categories
+            return {
+                'name': name,
+                'type': device_type,
+                'ip': self.ip,
+                'mac': mac_address,
+                'deviceID': device_id,
+                'components': components,
+            }
+        except Exception:
+            return None
     
     def send_key(self, key: str, sender: str = "Gabbo") -> bool:
         """
@@ -247,6 +332,7 @@ class SoundTouchController:
                     'artist': root.findtext('artist', 'Unknown'),
                     'track': root.findtext('track', 'Unknown'),
                     'album': root.findtext('album', 'Unknown'),
+                    'playStatus': root.get('playStatus', 'UNKNOWN'),
                 }
             return None
         except Exception:
@@ -348,6 +434,71 @@ class SoundTouchController:
             return response.status_code == 200
         except Exception:
             return False
+
+    def play_url_dlna_simple(self, url: str) -> bool:
+        """
+        Simple DLNA playback: just send URL without metadata.
+        
+        Args:
+            url: HTTP URL to media file (DLNA does NOT support HTTPS)
+            
+        Returns:
+            True if successful
+        """
+        if not url or not url.startswith("http://"):
+            return False
+        
+        try:
+            dlna = DLNAHelper(dlna_server_ip=self.ip, device_ip=self.ip, device_dlna_port=self.dlna_port)
+            return dlna.set_av_transport_uri(url) and dlna.play()
+        except Exception:
+            return False
+    
+    def play_dlna_track_from_server(self, dlna_server_ip: str, container_id: str = "1$4") -> bool:
+        """
+        Browse DLNA server, find first playable track, and play it on this device.
+        
+        Args:
+            dlna_server_ip: IP of DLNA server (e.g., MiniDLNA)
+            container_id: DLNA container ID to browse (default "1$4" for MiniDLNA Musik/Alle Titel)
+        
+        Returns:
+            True if successful
+        """
+        try:
+            dlna = DLNAHelper(dlna_server_ip=dlna_server_ip, device_ip=self.ip, device_dlna_port=self.dlna_port)
+            
+            # Find first playable track
+            res_url, title, protocol_info = dlna.find_first_playable_track(container_id)
+            if not res_url:
+                print(f"[DLNA] No playable tracks found in {dlna_server_ip}:{container_id}")
+                return False
+            
+            print(f"[DLNA] Found track: {title}")
+            
+            # Play it
+            if not dlna.set_av_transport_uri(res_url, title=title, protocol_info=protocol_info):
+                print(f"[DLNA] Failed to set transport URI")
+                return False
+            
+            if not dlna.play():
+                print(f"[DLNA] Failed to send play command")
+                return False
+            
+            print(f"[DLNA] ✅ Playback started: {title}")
+            return True
+            
+        except Exception as e:
+            print(f"[DLNA] Exception: {e}")
+            return False
+    
+    def dlna_stop(self) -> bool:
+        """Stop DLNA playback."""
+        try:
+            dlna = DLNAHelper(dlna_server_ip=self.ip, device_ip=self.ip, device_dlna_port=self.dlna_port)
+            return dlna.stop()
+        except Exception:
+            return False
     
     def get_sources(self) -> Optional[List[dict]]:
         """Get list of available sources."""
@@ -391,6 +542,124 @@ class SoundTouchController:
             response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
             return response.status_code == 200
         except Exception:
+            return False
+    
+    def select_source_with_location(self, source: str, source_account: str, location: str, item_name: str = '', item_type: str = 'track', artist: str = '', album: str = '') -> bool:
+        """
+        Select a source with location (e.g., STORED_MUSIC with HTTP URL, LOCAL_INTERNET_RADIO with stream URL).
+        
+        Args:
+            source: Source name (e.g., STORED_MUSIC, LOCAL_INTERNET_RADIO)
+            source_account: Account for the source (e.g., DLNA server UUID, empty for LOCAL_INTERNET_RADIO)
+            location: URL or location of the media
+            item_name: Display name for the item
+            item_type: Type of item (track, album, playlist, stationurl, etc.)
+            artist: Artist name (for metadata)
+            album: Album name (for metadata)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            url = f"{self.base_url}/select"
+            headers = {'Content-Type': 'application/xml'}
+            
+            # Build ContentItem with location and type
+            # For stationurl and radio sources, include metadata nested inside itemName
+            artist_xml = f'<artist>{escape(artist)}</artist>' if artist else ''
+            album_xml = f'<album>{escape(album)}</album>' if album else ''
+            track_xml = f'<track>{escape(item_name)}</track>' if item_name else ''
+            
+            # Metadata goes INSIDE itemName tag
+            itemName_content = f'{artist_xml}{album_xml}{track_xml}'
+            item_name_xml = f'<itemName>{itemName_content}</itemName>' if itemName_content else ''
+            
+            # Build source account attribute only if not empty
+            source_account_attr = f' sourceAccount="{escape(source_account)}"' if source_account else ''
+            
+            xml_body = (
+                f'<ContentItem source="{escape(source)}" '
+                f'type="{escape(item_type)}" '
+                f'{source_account_attr} '
+                f'location="{escape(location)}">'
+                f'{item_name_xml}'
+                f'</ContentItem>'
+            )
+            
+            response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
+            if response.status_code == 200:
+                # Give the device a moment to process the selection
+                import time
+                time.sleep(1.0)
+                # Send PLAY key twice to ensure playback starts (some devices need this)
+                self.send_key('play')
+                time.sleep(0.3)
+                self.send_key('play')
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def play_url_dlna(self, url: str, artist: str = "Unknown Artist", album: str = "Unknown Album", 
+                      track: str = "Unknown Track", dlna_server_ip: str = None) -> bool:
+        """
+        Play media from URL via DLNA/UPNP (port 8091).
+        Uses DLNAHelper to properly handle SOAP requests with metadata.
+        
+        Args:
+            url: HTTP URL to media file (DLNA does NOT support HTTPS!)
+            artist: Artist name for metadata
+            album: Album name for metadata
+            track: Track name for metadata
+            dlna_server_ip: DLNA server IP (optional, for future extensions)
+            
+        Returns:
+            True if successful
+            
+        Note: This sends a SOAP request to the DLNA AVTransport service,
+              which is the correct way to play UPNP/DLNA content.
+        """
+        if not url or not url.startswith("http://"):
+            return False
+        
+        try:
+            # Detect MIME type from URL extension
+            mime = "audio/mpeg"
+            lowered = url.lower()
+            if lowered.endswith(".flac"):
+                mime = "audio/flac"
+            elif lowered.endswith(".wav"):
+                mime = "audio/wav"
+            elif lowered.endswith(".m4a") or lowered.endswith(".mp4"):
+                mime = "audio/mp4"
+            elif lowered.endswith(".aac"):
+                mime = "audio/aac"
+            elif lowered.endswith(".ogg") or lowered.endswith(".oga"):
+                mime = "audio/ogg"
+            
+            # Build protocol info with DLNA extensions for MP3
+            dlna_flags = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01500000000000000000000000000000"
+            protocol_info = f"http-get:*:{mime}:*"
+            if mime == "audio/mpeg":
+                pn = "DLNA.ORG_PN=MP3"
+                protocol_info = f"http-get:*:{mime};{pn};{dlna_flags}"
+            
+            # Use DLNAHelper to send SOAP commands
+            dlna = DLNAHelper(dlna_server_ip=self.ip, device_ip=self.ip, device_dlna_port=self.dlna_port)
+            
+            # Set URI with metadata
+            if not dlna.set_av_transport_uri(url, title=track, protocol_info=protocol_info):
+                return False
+            
+            # Send Play
+            if not dlna.play():
+                return False
+            
+            print(f"✅ DLNA playback started: {track} by {artist}")
+            return True
+                
+        except Exception as e:
+            print(f"❌ DLNA exception: {e}")
             return False
     
     def get_presets(self) -> Optional[List[dict]]:
@@ -810,3 +1079,171 @@ class SoundTouchController:
     def get_available_keys() -> List[str]:
         """Get list of available keys."""
         return sorted(SoundTouchController.KEYS.keys())
+
+
+class SoundTouchGroupManager:
+    """Helper class for managing multi-room groups."""
+    
+    def __init__(self, devices: List[dict]):
+        """
+        Initialize group manager.
+        
+        Args:
+            devices: List of device dictionaries with 'ip', 'mac', 'name' keys
+        """
+        self.devices = devices
+        self.groups = []
+        
+    def create_group(self, master_device: dict, slave_devices: List[dict], group_name: str = "") -> bool:
+        """
+        Create a new multi-room group.
+        
+        Args:
+            master_device: Device dict to be the master
+            slave_devices: List of device dicts to be slaves
+            group_name: Optional name for the group
+            
+        Returns:
+            True if successful
+        """
+        try:
+            master_controller = SoundTouchController(master_device['ip'])
+            master_mac = master_device['mac']
+            
+            # Prepare members list
+            members = [(dev['ip'], dev['mac']) for dev in slave_devices]
+            
+            # Create zone
+            success = master_controller.set_zone(master_mac, members)
+            
+            if success:
+                group = {
+                    'name': group_name or f"Group {master_device['name']}",
+                    'master': master_device,
+                    'slaves': slave_devices,
+                    'all_devices': [master_device] + slave_devices
+                }
+                self.groups.append(group)
+                
+            return success
+        except Exception as e:
+            print(f"Error creating group: {e}")
+            return False
+    
+    def add_to_group(self, group_index: int, device: dict) -> bool:
+        """
+        Add a device to existing group.
+        
+        Args:
+            group_index: Index of group in self.groups
+            device: Device dict to add
+            
+        Returns:
+            True if successful
+        """
+        try:
+            if group_index >= len(self.groups):
+                return False
+                
+            group = self.groups[group_index]
+            master = group['master']
+            
+            controller = SoundTouchController(master['ip'])
+            success = controller.add_zone_slave(master['mac'], device['ip'], device['mac'])
+            
+            if success:
+                group['slaves'].append(device)
+                group['all_devices'].append(device)
+                
+            return success
+        except Exception as e:
+            print(f"Error adding to group: {e}")
+            return False
+    
+    def remove_from_group(self, group_index: int, device: dict) -> bool:
+        """
+        Remove a device from group.
+        
+        Args:
+            group_index: Index of group in self.groups
+            device: Device dict to remove
+            
+        Returns:
+            True if successful
+        """
+        try:
+            if group_index >= len(self.groups):
+                return False
+                
+            group = self.groups[group_index]
+            master = group['master']
+            
+            controller = SoundTouchController(master['ip'])
+            success = controller.remove_zone_slave(master['mac'], device['mac'])
+            
+            if success:
+                group['slaves'] = [d for d in group['slaves'] if d['mac'] != device['mac']]
+                group['all_devices'] = [master] + group['slaves']
+                
+            return success
+        except Exception as e:
+            print(f"Error removing from group: {e}")
+            return False
+    
+    def get_groups(self) -> List[dict]:
+        """Get list of all groups."""
+        return self.groups
+    
+    def send_command_to_group(self, group_index: int, key: str) -> bool:
+        """
+        Send command to all devices in group.
+        
+        Args:
+            group_index: Index of group
+            key: Key command to send
+            
+        Returns:
+            True if all successful
+        """
+        try:
+            if group_index >= len(self.groups):
+                return False
+                
+            group = self.groups[group_index]
+            success = True
+            
+            # Send to master first
+            master_controller = SoundTouchController(group['master']['ip'])
+            if not master_controller.send_key(key):
+                success = False
+                
+            return success
+        except Exception:
+            return False
+    
+    def set_group_volume(self, group_index: int, volume: int) -> bool:
+        """
+        Set volume for all devices in group.
+        
+        Args:
+            group_index: Index of group
+            volume: Volume level 0-100
+            
+        Returns:
+            True if all successful
+        """
+        try:
+            if group_index >= len(self.groups):
+                return False
+                
+            group = self.groups[group_index]
+            success = True
+            
+            for device in group['all_devices']:
+                controller = SoundTouchController(device['ip'])
+                if not controller.set_volume(volume):
+                    success = False
+                    
+            return success
+        except Exception:
+            return False
