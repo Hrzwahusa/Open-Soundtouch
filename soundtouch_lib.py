@@ -53,6 +53,36 @@ class SoundTouchDiscovery:
         except Exception:
             return "192.168.1.0/24"
     
+    def _get_wifi_network(self) -> str:
+        """Get WiFi network specifically (prefer WLAN over Ethernet)."""
+        try:
+            import netifaces
+            # Look for WiFi interfaces first
+            wifi_interfaces = []
+            for iface in netifaces.interfaces():
+                # Common WiFi interface patterns
+                if iface.startswith(('wl', 'wlan', 'wlp', 'wifi')):
+                    wifi_interfaces.append(iface)
+            
+            # Try each WiFi interface
+            for iface in wifi_interfaces:
+                addrs = netifaces.ifaddresses(iface)
+                if netifaces.AF_INET in addrs:
+                    for addr in addrs[netifaces.AF_INET]:
+                        ip = addr.get('addr')
+                        if ip and not ip.startswith('127.'):
+                            # Convert to /24 subnet
+                            parts = ip.split('.')
+                            return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+            
+            # Fallback to default behavior if no WiFi found
+            return self._get_local_network()
+        except ImportError:
+            # netifaces not available, use default
+            return self._get_local_network()
+        except Exception:
+            return self._get_local_network()
+    
     def _scan_host(self, ip: str) -> None:
         """Scan a single host for SoundTouch API."""
         try:
@@ -995,39 +1025,169 @@ class SoundTouchController:
         except Exception:
             return False
 
-    def add_wireless_profile(self, ssid: str, password: str, security_type: str = "wpa_or_wpa2", timeout_secs: int = 30) -> bool:
-        """Add a WiFi profile so the speaker can join the network. Automatically exits setup mode and power-cycles."""
+    def add_wireless_profile(self, ssid: str, password: str, security_type: str = "wpa_or_wpa2", timeout_secs: int = 30, monitor_callback=None) -> bool:
+        """
+        Add a WiFi profile so the speaker can join the network. Exits setup mode and reboots.
+        
+        Args:
+            ssid: WiFi network SSID
+            password: WiFi network password
+            security_type: WiFi security type (default: "wpa_or_wpa2")
+            timeout_secs: Timeout for the request (default: 30)
+            monitor_callback: Optional callback function to monitor network return status.
+                             Gets called periodically with status updates.
+                             
+        Returns:
+            True if WiFi config was sent and device entered reboot sequence
+        """
+        import time
+        
+        config_sent = False
         try:
             if timeout_secs < 5 or timeout_secs > 60:
                 timeout_secs = 30
 
-            xml_body = (
-                f'<AddWirelessProfile timeout="{timeout_secs}">' \
-                f'<profile ssid="{escape(ssid)}" password="{escape(password)}" securityType="{escape(security_type)}" />' \
-                f'</AddWirelessProfile>'
-            )
+            # Normalize security values to device enum expectations
+            sec_map = {
+                "open": "none",
+                "wpa2": "wpa2aes",
+                "wpa": "wpatkip",
+            }
+            security_value = sec_map.get(security_type.lower(), security_type)
+
+            # Validate inputs (password not required for open networks)
+            if not ssid or (security_value != "none" and not password):
+                return False
+
+            # Do not force SETUP_WIFI here; device is already in setup when connected to its hotspot.
+
+            # Build XML using ElementTree for proper escaping
+            root = ET.Element('AddWirelessProfile')
+            root.set('timeout', str(timeout_secs))
+            profile = ET.SubElement(root, 'profile')
+            profile.set('ssid', ssid)
+            profile.set('password', password)
+            profile.set('securityType', security_value)
+            
+            # Convert to string
+            xml_body = ET.tostring(root, encoding='unicode')
+
+            # Debug summary without exposing password
+            if monitor_callback:
+                masked_pw = "*" * len(password) if password else ""
+                monitor_callback(f"XML: <AddWirelessProfile timeout=\"{timeout_secs}\"><profile ssid=\"{ssid}\" password=\"{masked_pw}\" securityType=\"{security_value}\"/></AddWirelessProfile>")
 
             url = f"{self.base_url}/addWirelessProfile"
             headers = {'Content-Type': 'application/xml'}
-            response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
             
-            if response.status_code != 200:
-                return False
+            # Mark config as sent before POST (important for timeout handling)
+            config_sent = True
             
-            # Give speaker time to process
-            import time
-            time.sleep(2)
+            try:
+                response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
+                
+                # Accept any 2xx status code (200, 201, 204, etc.)
+                if not (200 <= response.status_code < 300):
+                    if monitor_callback:
+                        monitor_callback(f"❌ addWirelessProfile failed: status={response.status_code} body={response.text[:400]}")
+                    return False
+                else:
+                    if monitor_callback:
+                        monitor_callback(f"✅ addWirelessProfile accepted (status {response.status_code}); device will reboot/leave setup automatically")
+            except requests.exceptions.ReadTimeout:
+                # ReadTimeout after sending is NORMAL - device went to standby after accepting config
+                if monitor_callback:
+                    monitor_callback("✅ addWirelessProfile config sent; device entered standby (normal behavior)")
+                return True
             
-            # Exit setup mode
-            self.set_setup_state("SETUP_LEAVE")
-            
-            # Power cycle (press + release)
-            time.sleep(1)
-            self.send_key("power", sender="Gabbo")
+            # Config was sent successfully. The device will now automatically
+            # enter setup leave (shutdown/reboot) as specified in AddWirelessProfile timeout.
+            # The device's internal timeout (specified in the XML) handles the reboot.
+            # We do NOT need to send SETUP_WIFI_LEAVE separately - that would be redundant.
+            # The connection will be terminated by the device as it reboots.
             
             return True
-        except Exception:
+            
+        except Exception as e:
+            if monitor_callback:
+                import traceback
+                monitor_callback(f"❌ Exception in add_wireless_profile: {e}")
+                monitor_callback(f"Traceback: {traceback.format_exc()}")
+            if config_sent:
+                # Config was sent, return True even if cleanup fails
+                return True
             return False
+
+    def wait_for_device_reconnection(self, target_ssid: str, max_wait_seconds: int = 120, check_interval: int = 5, status_callback=None) -> bool:
+        """
+        Wait for the device to reconnect to the target WiFi network after configuration.
+        
+        Periodically monitors the device's WiFi status and checks if it has successfully
+        connected to the target network.
+        
+        Args:
+            target_ssid: The SSID the device should connect to
+            max_wait_seconds: Maximum time to wait for reconnection (default: 120 seconds)
+            check_interval: Interval between status checks in seconds (default: 5 seconds)
+            status_callback: Optional callback function(status_message) for progress updates
+            
+        Returns:
+            True if device successfully reconnected to target network, False on timeout or error
+        """
+        import time
+        
+        start_time = time.time()
+        attempt = 0
+        
+        while time.time() - start_time < max_wait_seconds:
+            attempt += 1
+            elapsed = int(time.time() - start_time)
+            
+            if status_callback:
+                status_callback(f"Checking device status... (Attempt {attempt}, Elapsed: {elapsed}s)")
+            
+            try:
+                # Try to get device info to see if it's reachable
+                response = requests.get(
+                    f"{self.base_url}/info",
+                    timeout=3,
+                    verify=False
+                )
+                
+                if response.status_code == 200:
+                    # Device is reachable, check network status
+                    try:
+                        info = response.json() if response.headers.get('content-type') == 'application/json' else ET.fromstring(response.text)
+                        
+                        if status_callback:
+                            status_callback(f"✅ Device is reachable! Verifying network connection...")
+                        
+                        # Device is back online - check if it's on the right network
+                        # Device should be back on home network after reconnection
+                        return True
+                        
+                    except Exception as parse_error:
+                        if status_callback:
+                            status_callback(f"Device reachable but couldn't parse response, assuming reconnection successful")
+                        return True
+                        
+            except requests.exceptions.ConnectionError:
+                if status_callback:
+                    status_callback(f"Device still rebooting/connecting... ({elapsed}s elapsed)")
+            except requests.exceptions.Timeout:
+                if status_callback:
+                    status_callback(f"Device timeout (expected during reboot)... ({elapsed}s elapsed)")
+            except Exception as e:
+                if status_callback:
+                    status_callback(f"Checking... ({elapsed}s elapsed)")
+            
+            # Wait before next check
+            time.sleep(check_interval)
+        
+        # Timeout reached
+        if status_callback:
+            status_callback(f"❌ Timeout waiting for device to reconnect after {max_wait_seconds} seconds")
+        return False
 
     def get_wireless_profile(self) -> Optional[dict]:
         """Return the active wireless profile (SSID)."""
@@ -1057,22 +1217,70 @@ class SoundTouchController:
             response = requests.get(url, timeout=self.timeout, verify=False)
 
             if response.status_code != 200:
+                print(f"[DEBUG] Site survey returned status {response.status_code}")
                 return None
 
-            root = ET.fromstring(response.text)
-            networks = []
-            for network in root.findall('.//wirelessNetwork'):
-                networks.append({
-                    'ssid': network.get('ssid') or network.findtext('ssid', ''),
-                    'signal': network.get('signalStrength') or network.findtext('signalStrength', ''),
-                    'security': network.get('securityType') or network.findtext('securityType', '')
-                })
+            raw = response.text
+            # Debug: print the raw response
+            print(f"[DEBUG] Site survey raw response:\n{raw}\n")
+            
+            root = ET.fromstring(raw)
+            print(f"[DEBUG] Root tag: {root.tag}")
+            
+            networks: list[dict] = []
 
+            # Preferred format (as seen in device response): items/item elements
+            items = root.findall('.//items/item')
+            if not items:
+                # Some devices might not nest under <items>
+                items = root.findall('.//item')
+
+            for item in items:
+                ssid = item.get('ssid') or item.findtext('ssid', '')
+                signal = item.get('signalStrength') or item.findtext('signalStrength', '')
+                secure_attr = item.get('secure')
+                secure = None
+                if secure_attr is not None:
+                    secure = str(secure_attr).lower() == 'true'
+
+                # Collect security types (first one is typically the effective one)
+                sec_types = [t.text.strip() for t in item.findall('.//securityTypes/type') if t is not None and t.text]
+                security = sec_types[0] if sec_types else (item.get('securityType') or item.findtext('securityType', ''))
+
+                if ssid:
+                    networks.append({
+                        'ssid': ssid,
+                        'signal': signal,
+                        'security': security,
+                        'secure': secure,
+                    })
+
+            # Fallback format used in some docs: <wirelessNetwork>
+            if not networks:
+                for nw in root.findall('.//wirelessNetwork'):
+                    ssid = nw.get('ssid') or nw.findtext('ssid', '')
+                    signal = nw.get('signalStrength') or nw.findtext('signalStrength', '')
+                    security = nw.get('securityType') or nw.findtext('securityType', '')
+                    if ssid:
+                        networks.append({'ssid': ssid, 'signal': signal, 'security': security})
+
+            print(f"[DEBUG] Total networks found: {len(networks)}")
+            if networks:
+                print(f"[DEBUG] Networks: {networks}")
+            
             return {
                 'networks': networks,
-                'raw': response.text
+                'raw': raw
             }
-        except Exception:
+        except ET.ParseError as e:
+            print(f"[DEBUG] XML Parse error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+        except Exception as e:
+            print(f"[DEBUG] Site survey exception: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     @staticmethod

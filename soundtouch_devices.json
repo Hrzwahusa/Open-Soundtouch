@@ -3,21 +3,21 @@
     "components": [
       {
         "category": "SCM",
-        "serialNumber": "P8242657902739342030120",
+        "serialNumber": "I6310613102739342000020",
         "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29"
       },
       {
         "category": "PackagedProduct",
-        "serialNumber": "069231P82511497AE",
+        "serialNumber": "069236P63190134AE",
         "version": "27.0.6.46330.5043500 epdbuild.trunk.hepdswbld04.2022-08-04T11:20:29"
       }
     ],
-    "deviceID": "2C6B7DF16EAE",
-    "ip": "192.168.50.184",
-    "mac": "2C6B7DF16EAE",
-    "margeAccount": "4807327",
-    "name": "Rumpelkammer",
+    "deviceID": "F45EAB2E1B67",
+    "ip": "192.168.50.19",
+    "mac": "F45EAB2E1B67",
+    "margeAccount": "",
+    "name": "K\u00c3\u00bcche",
     "type": "SoundTouch 10",
-    "url": "http://192.168.50.184:8090"
+    "url": "http://192.168.50.19:8090"
   }
 ]

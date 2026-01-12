@@ -146,6 +146,27 @@ class SoundTouchWebSocket:
         if now_playing_elem is None:
             now_playing_elem = root
         
+        # Parse time element for position/duration
+        # Format: <time total="265">15</time>  (total=duration in seconds, text=position in seconds)
+        time_elem = now_playing_elem.find('time')
+        position_ms = 0
+        duration_ms = 0
+        if time_elem is not None:
+            try:
+                # Duration from 'total' attribute (in seconds)
+                duration_sec = time_elem.get('total', '0')
+                duration_ms = int(duration_sec) * 1000
+                
+                # Position from text content (in seconds)
+                position_sec = time_elem.text or '0'
+                position_ms = int(position_sec) * 1000
+            except (ValueError, TypeError):
+                position_ms = 0
+                duration_ms = 0
+        
+        # Parse play status
+        play_status = now_playing_elem.get('playStatus', now_playing_elem.findtext('playStatus', 'STOP_STATE'))
+        
         return {
             'type': 'nowPlayingUpdated',
             'source': now_playing_elem.get('source', now_playing_elem.findtext('source', '')),
@@ -153,6 +174,9 @@ class SoundTouchWebSocket:
             'artist': now_playing_elem.findtext('artist', ''),
             'album': now_playing_elem.findtext('album', ''),
             'station': now_playing_elem.findtext('station', ''),
+            'playStatus': play_status,
+            'position': position_ms,
+            'duration': duration_ms,
         }
     
     def _parse_volume(self, root: ET.Element) -> Dict[str, Any]:

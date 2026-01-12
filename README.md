@@ -57,6 +57,13 @@ pip install -r requirements.txt
 - **Synchronized Playback**: Alle Geräte spielen gleiche Musik
 - **Dynamische Slave-Verwaltung**: Hinzufügen/Entfernen von Geräten
 
+### 📡 DLNA / Lokales Streaming
+- **DLNA-Playback (8091)** über `soundtouch_lib` + `DLNAHelper`
+- **MiniDLNA (8200)** für lokales Medien-Serving; Ordner `test_music/` & `minidlna/` bleiben lokal
+- **GUI Media Player Tab**: Streams per HTTP-Server + DLNA an das Gerät senden
+- **Playlist-Cycling**: Bei DLNA-Quelle navigieren „Zurück/Weiter“ im Steuerungs-Tab durch den gecachten Ordner
+- **Fallback**: Bei anderen Quellen senden die Buttons normale Key-Befehle
+
 ### 📱 API & Integration
 - **REST API**: FastAPI Server mit 40+ Endpoints
 - **Swagger Docs**: Auto-generierte API Dokumentation (/docs)

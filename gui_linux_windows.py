@@ -259,20 +259,11 @@ class SoundTouchGUI(QMainWindow):
         playback_layout.addWidget(btn_next, 0, 3)
         
         # Volume controls
-        vol_layout = QHBoxLayout()
-        vol_layout.addWidget(QLabel("Lautstärke:"))
+        btn_vol_down = self.create_button("🔉 -", "VOLUME_DOWN")
+        btn_vol_up = self.create_button("🔊 +", "VOLUME_UP")
         
-        self.volume_slider = QSlider(Qt.Horizontal)
-        self.volume_slider.setMinimum(0)
-        self.volume_slider.setMaximum(100)
-        self.volume_slider.setValue(50)
-        self.volume_slider.valueChanged.connect(self.on_volume_changed)
-        vol_layout.addWidget(self.volume_slider)
-        
-        self.volume_label = QLabel("50")
-        vol_layout.addWidget(self.volume_label)
-        
-        playback_layout.addLayout(vol_layout, 1, 0, 1, 4)
+        playback_layout.addWidget(btn_vol_down, 1, 0)
+        playback_layout.addWidget(btn_vol_up, 1, 1)
         
         playback_group.setLayout(playback_layout)
         layout.addWidget(playback_group)
@@ -396,8 +387,7 @@ class SoundTouchGUI(QMainWindow):
             # Auto-detect - nur aktive Netzwerke scannen
             networks = get_local_networks()
             if not networks:
-                QMessageBox.warning(
-                    self,
+                self.statusBar().showMessage(
                     "Keine Netzwerke",
                     "Konnte keine aktiven Netzwerke erkennen.\n"
                     "Bitte manuell eingeben (z.B. 192.168.50.0/24)"
@@ -499,8 +489,43 @@ class SoundTouchGUI(QMainWindow):
     
     def open_device_setup(self):
         """Öffnet den Device Setup Wizard."""
+        # Pause WebSocket während Setup um Konflikte zu vermeiden
+        websocket_was_active = False
+        if self.websocket:
+            self.statusBar().showMessage("Pausiere WebSocket für Setup...", 2000)
+            try:
+                self.websocket.disconnect()
+                websocket_was_active = True
+            except:
+                pass
+            self.websocket = None
+        
+        # Pausiere auch den Refresh-Timer
+        timer_was_active = self.refresh_timer.isActive()
+        if timer_was_active:
+            self.refresh_timer.stop()
+        
         wizard = DeviceSetupWizard(self)
         result = wizard.exec_()
+        
+        # Reaktiviere WebSocket/Timer wenn Setup abgeschlossen
+        if timer_was_active or websocket_was_active:
+            # Wenn ein Gerät ausgewählt ist, stelle Verbindung wieder her
+            if self.controller:
+                device = self.device_combo.currentData()
+                if device:
+                    try:
+                        self.websocket = SoundTouchWebSocket(device['ip'])
+                        if self.websocket.connect():
+                            self.statusBar().showMessage(f"WebSocket wieder verbunden mit {device['name']}", 3000)
+                            self.websocket.add_callback('nowPlayingUpdated', self._on_now_playing_updated)
+                            self.websocket.add_callback('volumeUpdated', self._on_volume_updated)
+                            self.websocket.add_callback('bassUpdated', self._on_bass_updated)
+                            self.refresh_timer.start(10000)
+                        else:
+                            self.refresh_timer.start(2000)
+                    except:
+                        self.refresh_timer.start(2000)
         
         if result == wizard.Accepted:
             # Nach erfolgreichem Setup neu scannen
@@ -510,7 +535,6 @@ class SoundTouchGUI(QMainWindow):
     def send_key(self, key):
         """Send key command to device."""
         if not self.controller:
-            QMessageBox.warning(self, "Fehler", "Bitte wähle zuerst ein Gerät aus")
             return
             
         try:
@@ -522,10 +546,10 @@ class SoundTouchGUI(QMainWindow):
             else:
                 self.statusBar().showMessage(f"Fehler beim Senden von '{key}'", 3000)
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Fehler: {e}")
+            self.statusBar().showMessage(f"Fehler beim Senden von '{key}': {e}", 5000)
 
     def is_dlna_source(self) -> bool:
-        """Heuristically detect DLNA/STORED_MUSIC source."""
+        """Heuristically detect DLNA/STORED_MUSIC/UPNP source."""
         src = self.last_source
         if not src:
             # Try reading from label as fallback
@@ -535,7 +559,7 @@ class SoundTouchGUI(QMainWindow):
         if not src:
             return False
         src_up = str(src).upper()
-        return "DLNA" in src_up or "STORED_MUSIC" in src_up
+        return "DLNA" in src_up or "STORED_MUSIC" in src_up or "UPNP" in src_up
 
     def handle_transport(self, key: str):
         """Dispatch transport buttons based on current source."""
@@ -564,15 +588,6 @@ class SoundTouchGUI(QMainWindow):
         # Fallback: normal key commands
         return self.send_key(key)
             
-    def on_volume_changed(self, value):
-        """Handle volume slider change."""
-        self.volume_label.setText(str(value))
-        if self.controller:
-            try:
-                self.controller.set_volume(value)
-            except Exception as e:
-                print(f"Volume error: {e}")
-                
     def _on_now_playing_updated(self, data):
         """WebSocket callback for now playing updates."""
         try:
@@ -589,10 +604,8 @@ class SoundTouchGUI(QMainWindow):
         """WebSocket callback for volume updates."""
         try:
             volume = data.get('actualvolume', 0)
-            self.volume_slider.blockSignals(True)
-            self.volume_slider.setValue(volume)
-            self.volume_label.setText(str(volume))
-            self.volume_slider.blockSignals(False)
+            # Volume is now controlled via buttons, no slider to update
+            pass
         except Exception as e:
             print(f"Error in volume callback: {e}")
     
@@ -615,13 +628,7 @@ class SoundTouchGUI(QMainWindow):
                 self.source_label.setText(f"Source: {info['source']}")
                 self.last_source = info.get('source')
             
-            # Update volume
-            volume = self.controller.get_volume()
-            if volume is not None:
-                self.volume_slider.blockSignals(True)
-                self.volume_slider.setValue(volume['actualvolume'])
-                self.volume_label.setText(str(volume['actualvolume']))
-                self.volume_slider.blockSignals(False)
+            # Volume is now controlled via buttons
         except Exception as e:
             pass
             

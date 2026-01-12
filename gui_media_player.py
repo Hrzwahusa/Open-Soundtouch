@@ -61,6 +61,121 @@ class MediaScanner(QThread):
             self.scan_complete.emit()
 
 
+class DLNAServerStarter(QThread):
+    """Background thread for starting DLNA server."""
+    server_started = pyqtSignal(object, str, str)  # (process, config_file, uuid)
+    server_failed = pyqtSignal(str)  # error message
+    status_message = pyqtSignal(str)  # status updates
+    
+    def __init__(self, media_folder: str):
+        super().__init__()
+        self.media_folder = media_folder
+        
+    def run(self):
+        """Start minidlna in background."""
+        import subprocess
+        import time
+        import os
+        import uuid
+        
+        try:
+            # Kill any existing minidlna processes
+            try:
+                subprocess.run(['pkill', '-u', os.getenv('USER'), 'minidlnad'], timeout=2, stderr=subprocess.DEVNULL)
+                time.sleep(1)
+            except:
+                pass
+            
+            # Create directories
+            minidlna_dir = os.path.join(self.media_folder, 'minidlna_opensoundtouch')
+            os.makedirs(minidlna_dir, exist_ok=True)
+            db_dir = os.path.join(minidlna_dir, 'minidlna_db')
+            log_dir = os.path.join(minidlna_dir, 'minidlna_logs')
+            pid_dir = os.path.join(minidlna_dir, 'minidlna_pid')
+            os.makedirs(pid_dir, exist_ok=True)
+            os.makedirs(db_dir, exist_ok=True)
+            os.makedirs(log_dir, exist_ok=True)
+
+            uuid_file = os.path.join(minidlna_dir, 'server_uuid.txt')
+        
+            # Load or generate UUID
+            if os.path.exists(uuid_file):
+                with open(uuid_file, 'r') as f:
+                    server_uuid = f.read().strip()
+                self.status_message.emit(f"[DLNA] Bestehende UUID geladen: {server_uuid}")
+            else:
+                server_uuid = str(uuid.uuid4())
+                with open(uuid_file, 'w') as f:
+                    f.write(server_uuid)
+                self.status_message.emit(f"[DLNA] Neue UUID generiert: {server_uuid}")
+                
+            # Create minidlna config
+            config_content = f"""# OpenSoundtouch auto-generated minidlna config
+port=8201
+media_dir=A,{self.media_folder}
+friendly_name=OpenSoundtouch-DLNA
+db_dir={db_dir}
+log_dir={log_dir}
+log_level=warn
+root_container=.
+enable_subtitles=no
+strict_dlna=no
+notify_interval=30
+inotify=yes
+uuid={server_uuid}
+"""
+        
+            # Write config
+            config_file = os.path.join(minidlna_dir, "minidlna_opensoundtouch.conf")
+            with open(config_file, 'w') as f:
+                f.write(config_content)
+            
+            self.status_message.emit(f"[DLNA] Config erstellt: {config_file}")
+            self.status_message.emit(f"[DLNA] Starte minidlna mit Ordner: {self.media_folder}")
+            
+            # Start minidlna
+            dlna_process = subprocess.Popen(
+                ['minidlnad', '-f', config_file, '-P', os.path.join(pid_dir, 'minidlna_opensoundtouch.pid')],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=self.media_folder,
+            )
+            
+            pid_file = os.path.join(pid_dir, 'minidlna_opensoundtouch.pid')
+            # Wait for minidlna to start
+            time.sleep(2)
+            
+            # Check if PID file was created
+            if os.path.exists(pid_file):
+                with open(pid_file, 'r') as f:
+                    pid = f.read().strip()
+                self.status_message.emit(f"[DLNA] minidlna gestartet mit PID: {pid}")
+            else:
+                self.status_message.emit("[DLNA] minidlna läuft (kein PID file gefunden, aber auch kein Fehler)")
+            
+            self.status_message.emit("[DLNA] Warte auf Indexing...")
+            
+            # Wait until DB is created
+            db_path = os.path.join(db_dir, 'files.db')
+            for i in range(15):  # Max 15 seconds
+                if os.path.exists(db_path):
+                    time.sleep(2)  # Wait a bit more for UUID
+                    break
+                time.sleep(1)
+            
+            if not os.path.exists(db_path):
+                self.status_message.emit("[DLNA] Warnung: Datenbank wurde noch nicht erstellt")
+            
+            self.server_started.emit(dlna_process, config_file, server_uuid)
+            
+        except Exception as e:
+            self.status_message.emit(f"[DLNA] Fehler beim Start: {e}")
+            import traceback
+            traceback.print_exc()
+            self.server_failed.emit(str(e))
+            self.scan_complete.emit()
+
+
 class StreamServer(QThread):
     """Simple HTTP server for streaming media files with CORS support."""
     server_ready = pyqtSignal(int)  # Emits port number
@@ -177,6 +292,11 @@ class StreamServer(QThread):
 class MediaPlayerWidget(QWidget):
     """Media player widget with streaming capabilities."""
     
+    # Signals for thread-safe operations
+    start_monitor_signal = pyqtSignal()
+    stop_monitor_signal = pyqtSignal()
+    update_progress_signal = pyqtSignal(int, int)  # (position_ms, duration_ms)
+    
     def __init__(self, controller=None, device=None):
         super().__init__()
         self.controller = controller
@@ -206,6 +326,28 @@ class MediaPlayerWidget(QWidget):
         self.rescan_timer = QTimer()
         self.rescan_timer.timeout.connect(self.auto_rescan)
         self.rescan_timer.setInterval(30000)  # 30 seconds
+        
+        # Track end detection timer
+        self.track_monitor_timer = QTimer()
+        self.track_monitor_timer.timeout.connect(self.check_track_end)
+        self.track_monitor_timer.setInterval(2000)  # Check every 2 seconds
+        
+        # Progress interpolation timer for smooth slider updates
+        self.progress_interpolation_timer = QTimer()
+        self.progress_interpolation_timer.timeout.connect(self._interpolate_progress)
+        self.progress_interpolation_timer.setInterval(500)  # Update every 500ms
+        
+        # Track state tracking
+        self.last_position_ms = 0
+        self.last_duration_ms = 0
+        self.current_play_status = None
+        self.cached_file_duration_ms = 0  # Duration from file metadata (fallback)
+        self.last_update_time = 0  # Timestamp of last WebSocket update
+        
+        # Connect signals for thread-safe operations
+        self.start_monitor_signal.connect(self._start_monitor)
+        self.stop_monitor_signal.connect(self._stop_monitor)
+        self.update_progress_signal.connect(self._update_progress_ui)
         
         self.init_ui()
         
@@ -277,11 +419,7 @@ class MediaPlayerWidget(QWidget):
         # Control buttons
         btn_layout = QHBoxLayout()
         
-        self.preview_btn = QPushButton("🔊 Vorschau (lokal)")
-        self.preview_btn.clicked.connect(self.preview_local)
-        btn_layout.addWidget(self.preview_btn)
-        
-        self.stream_btn = QPushButton("📡 An Gerät streamen")
+        self.stream_btn = QPushButton("▶ Play")
         self.stream_btn.clicked.connect(self.stream_to_device)
         self.stream_btn.setStyleSheet("background-color: #2196F3; color: white;")
         btn_layout.addWidget(self.stream_btn)
@@ -296,30 +434,23 @@ class MediaPlayerWidget(QWidget):
         btn_layout.addWidget(self.next_btn)
         
         self.stop_btn = QPushButton("⏹ Stop")
-        self.stop_btn.clicked.connect(self.stop_playback)
+        self.stop_btn.clicked.connect(self.send_stop_key)
         btn_layout.addWidget(self.stop_btn)
         
         playback_layout.addLayout(btn_layout)
         
-        # Server controls
-        server_layout = QHBoxLayout()
-        server_layout.addWidget(QLabel("Stream Server:"))
+        # Volume controls
+        vol_layout = QHBoxLayout()
         
-        self.server_status = QLabel("Gestoppt")
-        self.server_status.setStyleSheet("color: red;")
-        server_layout.addWidget(self.server_status)
+        self.vol_down_btn = QPushButton("🔉 -")
+        self.vol_down_btn.clicked.connect(self.send_volume_down)
+        vol_layout.addWidget(self.vol_down_btn)
         
-        self.start_server_btn = QPushButton("Server starten")
-        self.start_server_btn.clicked.connect(self.start_stream_server)
-        server_layout.addWidget(self.start_server_btn)
+        self.vol_up_btn = QPushButton("🔊 +")
+        self.vol_up_btn.clicked.connect(self.send_volume_up)
+        vol_layout.addWidget(self.vol_up_btn)
         
-        self.stop_server_btn = QPushButton("Server stoppen")
-        self.stop_server_btn.clicked.connect(self.stop_stream_server)
-        self.stop_server_btn.setEnabled(False)
-        server_layout.addWidget(self.stop_server_btn)
-        
-        server_layout.addStretch()
-        playback_layout.addLayout(server_layout)
+        playback_layout.addLayout(vol_layout)
         
         playback_group.setLayout(playback_layout)
         layout.addWidget(playback_group)
@@ -393,7 +524,8 @@ class MediaPlayerWidget(QWidget):
         if folder:
             self.folder_input.setText(folder)
             self.media_folder = folder
-            # Starte minidlna für diesen Ordner
+            self._log_notification("[DLNA] Starte DLNA Server...")
+            # Starte minidlna für diesen Ordner (im Hintergrund)
             self.start_dlna_server()
             # Automatisch scannen
             self.scan_folder()
@@ -405,7 +537,7 @@ class MediaPlayerWidget(QWidget):
         folder = self.folder_input.text()
         if not folder or not os.path.isdir(folder):
             if not silent:
-                QMessageBox.warning(self, "Fehler", "Bitte wähle einen gültigen Ordner")
+                self._log_notification("❌ Bitte wähle einen gültigen Ordner")
             return
             
         self.media_folder = folder
@@ -497,7 +629,7 @@ class MediaPlayerWidget(QWidget):
     def preview_local(self):
         """Play file locally for preview."""
         if not self.current_file:
-            QMessageBox.warning(self, "Fehler", "Bitte wähle zuerst eine Datei")
+            self._log_notification("❌ Bitte wähle zuerst eine Datei")
             return
             
         url = QUrl.fromLocalFile(self.current_file['path'])
@@ -507,23 +639,17 @@ class MediaPlayerWidget(QWidget):
     def stream_to_device(self):
         """Stream selected file to SoundTouch device."""
         if not self.current_file:
-            QMessageBox.warning(self, "Fehler", "Bitte wähle zuerst eine Datei")
+            self._log_notification("❌ Bitte wähle zuerst eine Datei")
             return
             
         if not self.controller:
-            QMessageBox.warning(self, "Fehler", "Kein Gerät verbunden")
+            self._log_notification("❌ Kein Gerät verbunden")
             return
             
         # Ensure minidlna is running
         if not self.dlna_process:
-            QMessageBox.warning(
-                self, 
-                "minidlna nicht aktiv", 
-                "minidlna wird gerade gestartet...\n\n"
-                "Dies kann 10-30 Sekunden dauern während minidlna\n"
-                "die Musikdateien indexiert.\n\n"
-                "Bitte warte und versuche dann erneut."
-            )
+            self._log_notification("minidlna nicht aktiv, minidlna wird gerade gestartet...\nDies kann 10-30 Sekunden dauern während minidlna\ndie Musikdateien indexiert.\nBitte warte und versuche dann erneut.")
+            
             self.start_dlna_server()
             # Warte länger für Indexing
             QTimer.singleShot(5000, self.stream_to_device)
@@ -576,14 +702,7 @@ class MediaPlayerWidget(QWidget):
             print(f"[DLNA] Server erreichbar: {status}")
         except Exception as e:
             self._log_notification(f"[DLNA] ✗ Server nicht erreichbar: {e}")
-            QMessageBox.warning(
-                self, 
-                "DLNA Server nicht erreichbar", 
-                f"minidlna läuft nicht oder ist nicht erreichbar:\n{e}\n\n"
-                f"Test-URL: {test_url}\n\n"
-                f"Stelle sicher, dass minidlna installiert ist:\n"
-                f"sudo apt install minidlna"
-            )
+            self._log_notification(f"DLNA Server nicht erreichbar, minidlna läuft nicht oder ist nicht erreichbar:\n{e}\nTest-URL: {test_url}\nStelle sicher, dass minidlna installiert ist:\nsudo apt install minidlna")
             return
         
         # Verwende direkten HTTP-Server-Pfad (eigener Server)
@@ -609,20 +728,11 @@ class MediaPlayerWidget(QWidget):
             with urllib.request.urlopen(req, timeout=2) as response:
                 status = response.status
             if status != 200:
-                QMessageBox.warning(
-                    self,
-                    "Datei nicht gefunden",
-                    f"Datei ist über Server nicht erreichbar:\n"
-                    f"HTTP {status}\n\n{stream_url}"
-                )
+                self._log_notification(f"Datei nicht gefunden\nDatei ist über Server nicht erreichbar:\nHTTP {status}\n\n{stream_url}")
                 return
             print(f"[Stream] Datei erreichbar: {status}")
         except Exception as e:
-            QMessageBox.warning(
-                self,
-                "Datei-Test fehlgeschlagen",
-                f"Konnte Datei nicht testen:\n{e}\n\n{stream_url}"
-            )
+            self._log_notification(f"Datei-Test fehlgeschlagen\nKonnte Datei nicht testen:\n{e}\n\n{stream_url}")
             return
         
         # Send to device via DLNA
@@ -633,6 +743,9 @@ class MediaPlayerWidget(QWidget):
             
             # Hole Dateinamen
             track_name = os.path.basename(self.current_file['rel_path'])
+            
+            # Extrahiere Duration aus Datei als Fallback
+            self._extract_file_duration(self.current_file['path'])
             
             self._log_notification(f"[Stream] 📡 Sende über DLNA: {track_name}")
             print(f"[Stream] URL: {stream_url}")
@@ -649,37 +762,90 @@ class MediaPlayerWidget(QWidget):
             if success:
                 self._log_notification(f"[Stream] ✓ DLNA-Playback gestartet: {track_name}")
                 print(f"[Stream] ✓ DLNA erfolgreich")
-                QMessageBox.information(self, "Erfolg", f"Stream läuft:\n{track_name}")
             else:
                 self._log_notification(f"[Stream] ✗ DLNA-Playback fehlgeschlagen")
                 print(f"[Stream] ✗ DLNA fehlgeschlagen")
-                QMessageBox.warning(
-                    self,
-                    "Stream fehlgeschlagen",
-                    "DLNA-Playback konnte nicht gestartet werden.\n"
-                    "Stelle sicher, dass das Gerät erreichbar ist."
-                )
             
         except Exception as e:
             import traceback
             self._log_notification(f"[Stream] ✗ Fehler: {e}")
             print(f"[Stream] Exception: {e}")
             traceback.print_exc()
-            QMessageBox.critical(
-                self,
-                "Streaming-Fehler",
-                f"Ein Fehler ist aufgetreten:\n{e}"
-            )
             return
             
     def stop_playback(self):
         """Stop local playback."""
         self.player.stop()
     
+    def send_stop_key(self):
+        """Send STOP key to device."""
+        if not self.controller:
+            self._log_notification("❌ Keine Geräteverbindung aktiv")
+            return
+        
+        try:
+            self._log_notification("[Control] ⏹ Sende STOP-Befehl")
+            success = self.controller.send_key("STOP")
+            if success:
+                self._log_notification("[Control] ✓ STOP gesendet")
+            else:
+                self._log_notification("[Control] ✗ STOP-Befehl fehlgeschlagen")
+        except Exception as e:
+            self._log_notification(f"[Control] ✗ Fehler: {e}")
+    
+    def send_volume_down(self):
+        """Send VOLUME_DOWN key to device."""
+        if not self.controller:
+            self._log_notification("❌ Keine Geräteverbindung aktiv")
+            return
+        
+        try:
+            self.controller.send_key("VOLUME_DOWN")
+            self._log_notification("[Volume] 🔉 Leiser")
+        except Exception as e:
+            self._log_notification(f"[Volume] ✗ Fehler: {e}")
+    
+    def send_volume_up(self):
+        """Send VOLUME_UP key to device."""
+        if not self.controller:
+            self._log_notification("❌ Keine Geräteverbindung aktiv")
+            return
+        
+        try:
+            self.controller.send_key("VOLUME_UP")
+            self._log_notification("[Volume] 🔊 Lauter")
+        except Exception as e:
+            self._log_notification(f"[Volume] ✗ Fehler: {e}")
+    
+    def check_track_end(self):
+        """Check if current track has ended and auto-play next."""
+        if not self.playlist_cache or not self.controller:
+            return
+        
+        # Only check if we have valid duration
+        if self.last_duration_ms <= 0:
+            return
+        
+        # Check if we're near the end (within last 3 seconds)
+        time_remaining_ms = self.last_duration_ms - self.last_position_ms
+        
+        # If less than 3 seconds remaining and playing, prepare for next track
+        if time_remaining_ms < 3000 and time_remaining_ms > 0:
+            if self.current_play_status == "PLAY_STATE":
+                self._log_notification(f"[Monitor] ⏭ Track endet in {time_remaining_ms//1000}s - bereite nächsten Track vor")
+        
+        # If track ended (position very close to duration or beyond)
+        if self.last_position_ms >= self.last_duration_ms - 500 and self.last_duration_ms > 0:
+            if self.current_play_status in ["PLAY_STATE", "PAUSE_STATE"]:
+                self._log_notification("[Monitor] ✓ Track beendet - spiele nächsten Track")
+                self.track_monitor_timer.stop()
+                # Wait a moment before playing next
+                QTimer.singleShot(1000, self.play_next)
+    
     def play_next(self):
         """Play next file in playlist."""
         if not self.playlist_cache:
-            QMessageBox.warning(self, "Fehler", "Keine Playlist geladen")
+            self._log_notification("❌ Keine Playlist geladen")
             return
         
         # Move to next
@@ -698,7 +864,6 @@ class MediaPlayerWidget(QWidget):
     def play_previous(self):
         """Play previous file in playlist."""
         if not self.playlist_cache:
-            QMessageBox.warning(self, "Fehler", "Keine Playlist geladen")
             return
         
         # Move to previous
@@ -717,7 +882,6 @@ class MediaPlayerWidget(QWidget):
     def start_stream_server(self):
         """Start the streaming server."""
         if not self.media_folder:
-            QMessageBox.warning(self, "Fehler", "Bitte wähle zuerst einen Media Ordner")
             return
             
         if self.stream_server and self.stream_server.running:
@@ -729,20 +893,15 @@ class MediaPlayerWidget(QWidget):
         
     def on_server_ready(self, port):
         """Handle server ready."""
-        self.server_status.setText(f"Läuft auf Port {port}")
-        self.server_status.setStyleSheet("color: green;")
-        self.start_server_btn.setEnabled(False)
-        self.stop_server_btn.setEnabled(True)
+        # Server UI-Elemente wurden entfernt
+        pass
         
     def stop_stream_server(self):
         """Stop the streaming server."""
+        # Server UI-Elemente wurden entfernt
         if self.stream_server:
             self.stream_server.stop()
             self.stream_server.wait()
-            self.server_status.setText("Gestoppt")
-            self.server_status.setStyleSheet("color: red;")
-            self.start_server_btn.setEnabled(True)
-            self.stop_server_btn.setEnabled(False)
     
     def _connect_websocket(self):
         """Connect WebSocket in background thread."""
@@ -774,7 +933,41 @@ class MediaPlayerWidget(QWidget):
             album = notification.get('album', '?')
             track = notification.get('track', '?')
             play_status = notification.get('playStatus', '?')
-            self._log_notification(f"[NowPlaying] {artist} - {track} ({play_status})")
+            
+            # Store play status for track end detection
+            self.current_play_status = play_status
+            
+            # Update progress/duration from nowPlayingUpdated
+            position_ms = notification.get('position', 0)
+            duration_ms = notification.get('duration', 0)
+            
+            # Store timestamp for interpolation
+            import time
+            self.last_update_time = time.time()
+            
+            # Store for track end detection
+            self.last_position_ms = position_ms
+            
+            # Use cached duration if device doesn't report it
+            if duration_ms > 0:
+                self.last_duration_ms = duration_ms
+            elif self.cached_file_duration_ms > 0:
+                duration_ms = self.cached_file_duration_ms
+                self.last_duration_ms = duration_ms
+            else:
+                self.last_duration_ms = 0
+            
+            # Update UI via signal (thread-safe)
+            if position_ms or duration_ms:
+                self.update_progress_signal.emit(position_ms, duration_ms)
+            
+            # Control monitoring via signal (thread-safe)
+            if play_status == "PLAY_STATE":
+                self.start_monitor_signal.emit()
+            else:
+                self.stop_monitor_signal.emit()
+            
+            self._log_notification(f"[NowPlaying] {artist} - {track} ({play_status}) [{position_ms//1000}s/{duration_ms//1000}s]")
         except Exception as e:
             self._log_notification(f"[NowPlaying] Error: {e}")
     
@@ -789,8 +982,9 @@ class MediaPlayerWidget(QWidget):
     def _on_volume_updated(self, notification: dict):
         """Handle volumeUpdated event from device."""
         try:
-            volume = notification.get('volume', '?')
+            volume = notification.get('actualvolume', notification.get('volume', '?'))
             self._log_notification(f"[Volume] {volume}")
+            # Volume is now controlled via buttons, no slider to update
         except Exception as e:
             self._log_notification(f"[Volume] Error: {e}")
     
@@ -809,6 +1003,87 @@ class MediaPlayerWidget(QWidget):
         except Exception as e:
             self._log_notification(f"[Bass] Error: {e}")
     
+    # Thread-safe slot methods
+    def _start_monitor(self):
+        """Start track monitor timer (called from main thread)."""
+        if not self.track_monitor_timer.isActive():
+            self.track_monitor_timer.start()
+            self._log_notification("[Monitor] ▶ Track-Monitoring gestartet")
+        if not self.progress_interpolation_timer.isActive():
+            self.progress_interpolation_timer.start()
+    
+    def _stop_monitor(self):
+        """Stop track monitor timer (called from main thread)."""
+        if self.track_monitor_timer.isActive():
+            self.track_monitor_timer.stop()
+            self._log_notification("[Monitor] ⏸ Track-Monitoring pausiert")
+        if self.progress_interpolation_timer.isActive():
+            self.progress_interpolation_timer.stop()
+    
+    def _extract_file_duration(self, file_path: str):
+        """Extract duration from audio file using mutagen."""
+        try:
+            from mutagen import File
+            audio = File(file_path)
+            if audio and hasattr(audio.info, 'length'):
+                duration_sec = audio.info.length
+                self.cached_file_duration_ms = int(duration_sec * 1000)
+                self._log_notification(f"[File] Duration: {int(duration_sec)}s aus Datei extrahiert")
+            else:
+                self.cached_file_duration_ms = 0
+        except ImportError:
+            self._log_notification("[File] mutagen nicht installiert - Duration-Fallback nicht verfügbar")
+            self.cached_file_duration_ms = 0
+        except Exception as e:
+            self._log_notification(f"[File] Fehler beim Lesen der Duration: {e}")
+            self.cached_file_duration_ms = 0
+    
+    def _interpolate_progress(self):
+        """Interpolate progress between WebSocket updates for smooth slider movement."""
+        if not self.current_play_status == "PLAY_STATE":
+            return
+        
+        if self.last_duration_ms <= 0:
+            return
+        
+        # Calculate elapsed time since last WebSocket update
+        import time
+        current_time = time.time()
+        elapsed_ms = int((current_time - self.last_update_time) * 1000)
+        
+        # Interpolate position
+        interpolated_position = self.last_position_ms + elapsed_ms
+        
+        # Don't exceed duration
+        if interpolated_position > self.last_duration_ms:
+            interpolated_position = self.last_duration_ms
+        
+        # Update UI
+        self.progress_slider.blockSignals(True)
+        self.progress_slider.setValue(interpolated_position)
+        self.progress_slider.blockSignals(False)
+        
+        mins = interpolated_position // 60000
+        secs = (interpolated_position % 60000) // 1000
+        self.time_label_start.setText(f"{mins}:{secs:02d}")
+    
+    def _update_progress_ui(self, position_ms: int, duration_ms: int):
+        """Update progress slider and time labels (called from main thread)."""
+        if position_ms:
+            self.progress_slider.blockSignals(True)
+            self.progress_slider.setValue(position_ms)
+            self.progress_slider.blockSignals(False)
+            
+            mins = position_ms // 60000
+            secs = (position_ms % 60000) // 1000
+            self.time_label_start.setText(f"{mins}:{secs:02d}")
+        
+        if duration_ms:
+            self.progress_slider.setMaximum(duration_ms)
+            mins = duration_ms // 60000
+            secs = (duration_ms % 60000) // 1000
+            self.time_label_end.setText(f"{mins}:{secs:02d}")
+    
     def _on_zone_updated(self, notification: dict):
         """Handle zoneUpdated event from device."""
         try:
@@ -826,122 +1101,23 @@ class MediaPlayerWidget(QWidget):
         # Stop existing minidlna first
         self.stop_dlna_server()
         
-        import subprocess
-        import time
-        import os
-        import uuid
-        
-
-        try:
-            # Kill any existing minidlna processes (nur eigene User-Prozesse)
-            try:
-                subprocess.run(['pkill', '-u', os.getenv('USER'), 'minidlnad'], timeout=2)
-                time.sleep(1)
-            except:
-                pass
-            
-            # Erstelle Verzeichnisse falls nicht vorhanden
-            minidlna_dir = os.path.join(self.media_folder, 'minidlna_opensoundtouch')
-            os.makedirs(minidlna_dir, exist_ok=True)
-            self.db_dir = os.path.join(minidlna_dir, 'minidlna_db')
-            log_dir = os.path.join(minidlna_dir, 'minidlna_logs')
-            pid_dir = os.path.join(minidlna_dir, 'minidlna_pid')
-            os.makedirs(pid_dir, exist_ok=True)
-            os.makedirs(self.db_dir, exist_ok=True)
-            os.makedirs(log_dir, exist_ok=True)
-
-            uuid_file = os.path.join(minidlna_dir, 'server_uuid.txt')
-        
-            # Lade oder generiere UUID
-            if os.path.exists(uuid_file):
-                with open(uuid_file, 'r') as f:
-                    server_uuid = f.read().strip()
-                print(f"[DLNA] Bestehende UUID geladen: {server_uuid}")
-            else:
-                server_uuid = str(uuid.uuid4())
-                with open(uuid_file, 'w') as f:
-                    f.write(server_uuid)
-                print(f"[DLNA] Neue UUID generiert: {server_uuid}")
-            
-            # Speichere UUID für späteren Zugriff
-            self.dlna_uuid = server_uuid
-                
-            # Create minidlna config
-            config_content = f"""# OpenSoundtouch auto-generated minidlna config
-port=8201
-media_dir=A,{self.media_folder}
-friendly_name=OpenSoundtouch-DLNA
-db_dir={self.db_dir}
-log_dir={log_dir}
-log_level=warn
-root_container=.
-enable_subtitles=no
-strict_dlna=no
-notify_interval=30
-inotify=yes
-uuid={server_uuid}
-"""
-        
-            # Schreibe Config
-            self.config_file = os.path.join(minidlna_dir, "minidlna_opensoundtouch.conf")
-            with open(self.config_file, 'w') as f:
-                f.write(config_content)
-            
-            print(f"[DLNA] Config erstellt: {self.config_file}")
-            print(f"[DLNA] Starte minidlna mit Ordner: {self.media_folder}")
-            
-            # Starte minidlna OHNE sudo, mit -d für debug/foreground falls gewünscht
-            # WICHTIG: Entferne -P flag, das macht Probleme
-            self.dlna_process = subprocess.Popen(
-                ['minidlnad', '-f', self.config_file, '-P', os.path.join(pid_dir, 'minidlna_opensoundtouch.pid')],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=self.media_folder,  # Arbeitsverzeichnis setzen
-                
-            )
-            pid_file = os.path.join(pid_dir, 'minidlna_opensoundtouch.pid')
-            # Warte bis minidlna startet
-            time.sleep(2)
-            
-            # Prüfe ob PID-File erstellt wurde (Zeichen dass es läuft)
-            if os.path.exists(pid_file):
-                with open(pid_file, 'r') as f:
-                    pid = f.read().strip()
-                print(f"[DLNA] minidlna gestartet mit PID: {pid}")
-                self.dlna_pid_file = pid_file  # Speichere für später
-            else:
-                # Kein PID file - prüfe stderr
-                error_msg = result.stderr.decode('utf-8', errors='ignore')
-                if error_msg and 'error' in error_msg.lower():
-                    print(f"[DLNA] Fehler im Log: {error_msg}")
-                    raise Exception(f"minidlnad Fehler:\n{error_msg}")
-                else:
-                    print("[DLNA] minidlna läuft (kein PID file gefunden, aber auch kein Fehler)")
-            
-                print("[DLNA] Warte auf Indexing...")
-            
-            # Warte bis DB erstellt wurde
-            db_path = os.path.join(self.db_dir, 'files.db')
-            for i in range(15):  # Max 15 Sekunden warten
-                if os.path.exists(db_path):
-                    time.sleep(2)  # Noch kurz warten bis UUID geschrieben ist
-                    break
-                time.sleep(1)
-            
-            if not os.path.exists(db_path):
-                print("[DLNA] Warnung: Datenbank wurde noch nicht erstellt")
-            
-        except Exception as e:
-            print(f"[DLNA] Fehler beim Start: {e}")
-            import traceback
-            traceback.print_exc()
-            QMessageBox.warning(
-                self,
-                "DLNA Fehler",
-                f"Konnte minidlna nicht starten:\n{e}\n\n"
-                "Stelle sicher, dass minidlna installiert ist:\n"
-                "sudo apt install minidlna"
-            )
+        # Start DLNA server in background thread
+        self.dlna_starter = DLNAServerStarter(self.media_folder)
+        self.dlna_starter.server_started.connect(self._on_dlna_server_started)
+        self.dlna_starter.server_failed.connect(self._on_dlna_server_failed)
+        self.dlna_starter.status_message.connect(self._log_notification)
+        self.dlna_starter.start()
+    
+    def _on_dlna_server_started(self, process, config_file, server_uuid):
+        """Handle DLNA server started successfully."""
+        self.dlna_process = process
+        self.config_file = config_file
+        self.dlna_uuid = server_uuid
+        self._log_notification("[DLNA] ✓ Server erfolgreich gestartet")
+    
+    def _on_dlna_server_failed(self, error_msg):
+        """Handle DLNA server start failure."""
+        self._log_notification(f"[DLNA] ✗ Start fehlgeschlagen: {error_msg}")
 
     def stop_dlna_server(self):
         """Stop minidlna."""
