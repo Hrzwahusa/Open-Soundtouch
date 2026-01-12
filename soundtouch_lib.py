@@ -12,6 +12,8 @@ import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
 from typing import List, Dict, Optional
 from dlna_helper import DLNAHelper
+from nowplaying_status import NowPlayingStatus
+
 
 # Suppress SSL warnings
 requests.packages.urllib3.disable_warnings()
@@ -348,24 +350,27 @@ class SoundTouchController:
         except Exception:
             return False
     
-    def get_nowplaying(self) -> Optional[dict]:
-        """Get currently playing info."""
+    def get_nowplaying(self) -> Optional[NowPlayingStatus]:
+        """
+        Get currently playing info.
+        
+        Returns:
+            NowPlayingStatus object with track, artist, album, duration, position, playStatus, etc.
+            Returns None if error.
+        """
         try:
             url = f"{self.base_url}/now_playing"
             response = requests.get(url, timeout=self.timeout, verify=False)
             
             if response.status_code == 200:
+                print(f"[DEBUG] now_playing response:\n{response.text}\n")
                 root = ET.fromstring(response.text)
-                return {
-                    'source': root.get('source', 'Unknown'),
-                    'sourceAccount': root.get('sourceAccount', ''),
-                    'artist': root.findtext('artist', 'Unknown'),
-                    'track': root.findtext('track', 'Unknown'),
-                    'album': root.findtext('album', 'Unknown'),
-                    'playStatus': root.get('playStatus', 'UNKNOWN'),
-                }
+                status = NowPlayingStatus(root=root)
+                print(f"[DEBUG] Parsed: track={status.track}, duration={status.duration}, position={status.position}")
+                return status
             return None
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] get_nowplaying error: {e}")
             return None
     
     def get_volume(self) -> Optional[dict]:
@@ -678,7 +683,8 @@ class SoundTouchController:
             dlna = DLNAHelper(dlna_server_ip=self.ip, device_ip=self.ip, device_dlna_port=self.dlna_port)
             
             # Set URI with metadata
-            if not dlna.set_av_transport_uri(url, title=track, protocol_info=protocol_info):
+            if not dlna.set_av_transport_uri(url, title=track, protocol_info=protocol_info,
+                                            artist=artist, album=album):
                 return False
             
             # Send Play
@@ -1301,6 +1307,76 @@ class SoundTouchGroupManager:
         """
         self.devices = devices
         self.groups = []
+    
+    def load_groups_from_devices(self) -> bool:
+        """
+        Load existing multi-room groups from devices.
+        
+        Scans all devices to find existing zone configurations and loads them.
+        
+        Returns:
+            True if at least some groups were found, False otherwise
+        """
+        try:
+            self.groups = []
+            found_zones = set()  # Track which master MACs we've already processed
+            
+            for device in self.devices:
+                try:
+                    controller = SoundTouchController(device['ip'])
+                    zone_info = controller.get_zone()
+                    
+                    # Check if zone has a valid master (non-empty string)
+                    if zone_info and zone_info.get('master') and zone_info.get('master').strip():
+                        master_mac = zone_info['master']
+                        
+                        # Skip if we already processed this zone (avoid duplicates)
+                        if master_mac in found_zones:
+                            continue
+                        
+                        found_zones.add(master_mac)
+                        
+                        # Find master device by MAC
+                        master_device = None
+                        for dev in self.devices:
+                            if dev['mac'] == master_mac:
+                                master_device = dev
+                                break
+                        
+                        if not master_device:
+                            continue
+                        
+                        # Find slave devices by MAC
+                        slave_devices = []
+                        for member in zone_info.get('members', []):
+                            member_mac = member.get('macaddr', '')
+                            for dev in self.devices:
+                                if dev['mac'] == member_mac:
+                                    slave_devices.append(dev)
+                                    break
+                        
+                        # Create group entry (only if there are slaves)
+                        if slave_devices:
+                            group = {
+                                'name': f"Gruppe {master_device['name']}",
+                                'master': master_device,
+                                'slaves': slave_devices,
+                                'all_devices': [master_device] + slave_devices
+                            }
+                            self.groups.append(group)
+                            print(f"DEBUG: Gruppe geladen: {group['name']} mit {len(slave_devices)} Slaves")
+                except Exception as e:
+                    print(f"Error reading zone from {device.get('name')}: {e}")
+                    continue
+            
+            if self.groups:
+                print(f"DEBUG: {len(self.groups)} Gruppen geladen")
+            else:
+                print(f"DEBUG: Keine bestehenden Gruppen gefunden")
+            return len(self.groups) > 0
+        except Exception as e:
+            print(f"Error loading groups from devices: {e}")
+            return False
         
     def create_group(self, master_device: dict, slave_devices: List[dict], group_name: str = "") -> bool:
         """

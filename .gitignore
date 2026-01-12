@@ -32,5 +32,6 @@ htmlcov/
 
 # Local audio/test artifacts
 test_music/
-minidlna/
+minidlna_opensoundtouch/
 wireshark_log.pcapng
+soundtouch_devices.json

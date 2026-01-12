@@ -145,6 +145,10 @@ class SoundTouchWebSocket:
         now_playing_elem = root.find('nowPlaying')
         if now_playing_elem is None:
             now_playing_elem = root
+
+        # Content item (may carry stream URL)
+        content_item = now_playing_elem.find('ContentItem')
+        location = content_item.get('location') if content_item is not None else None
         
         # Parse time element for position/duration
         # Format: <time total="265">15</time>  (total=duration in seconds, text=position in seconds)
@@ -155,14 +159,26 @@ class SoundTouchWebSocket:
             try:
                 # Duration from 'total' attribute (in seconds)
                 duration_sec = time_elem.get('total', '0')
-                duration_ms = int(duration_sec) * 1000
+                duration_ms = int(float(duration_sec) * 1000)
                 
                 # Position from text content (in seconds)
                 position_sec = time_elem.text or '0'
-                position_ms = int(position_sec) * 1000
+                position_ms = int(float(position_sec) * 1000)
             except (ValueError, TypeError):
                 position_ms = 0
                 duration_ms = 0
+
+        # Fallback: some devices embed duration under details/duration (DLNA DB)
+        if duration_ms <= 0:
+            details_elem = now_playing_elem.find('details')
+            if details_elem is not None:
+                raw_duration = details_elem.findtext('duration', '0')
+                try:
+                    parsed = float(raw_duration)
+                    # Heuristic: values below 100000 are treated as seconds, otherwise milliseconds
+                    duration_ms = int(parsed * 1000) if parsed < 100000 else int(parsed)
+                except (ValueError, TypeError):
+                    duration_ms = 0
         
         # Parse play status
         play_status = now_playing_elem.get('playStatus', now_playing_elem.findtext('playStatus', 'STOP_STATE'))
@@ -174,6 +190,7 @@ class SoundTouchWebSocket:
             'artist': now_playing_elem.findtext('artist', ''),
             'album': now_playing_elem.findtext('album', ''),
             'station': now_playing_elem.findtext('station', ''),
+            'location': location,
             'playStatus': play_status,
             'position': position_ms,
             'duration': duration_ms,
@@ -308,9 +325,24 @@ class SoundTouchWebSocket:
     def disconnect(self):
         """Disconnect from WebSocket."""
         self.running = False
-        if self.ws:
-            self.ws.close()
         self.connected = False
+        
+        # Clear all callbacks first
+        self.callbacks.clear()
+        
+        if self.ws:
+            try:
+                self.ws.close()
+            except Exception:
+                pass
+            self.ws = None
+        
+        # Wait for thread to finish (with timeout)
+        if self.ws_thread and self.ws_thread.is_alive():
+            try:
+                self.ws_thread.join(timeout=2)
+            except Exception:
+                pass
     
     def close(self):
         """Alias for disconnect."""

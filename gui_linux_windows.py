@@ -149,12 +149,15 @@ class SoundTouchGUI(QMainWindow):
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle('Bose SoundTouch Controller')
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(1000, 700)
+        self.setWindowIcon(QIcon())  # Set a placeholder icon
         
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(16, 16, 16, 16)
         
         # Device selection section
         device_group = self.create_device_selection()
@@ -225,13 +228,15 @@ class SoundTouchGUI(QMainWindow):
         """Create main control tab."""
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
+        layout.setContentsMargins(12, 12, 12, 12)
         
         # Now Playing Display
         now_playing_group = QGroupBox("Aktuelle Wiedergabe")
         now_playing_layout = QVBoxLayout()
         
         self.track_label = QLabel("Track: -")
-        self.track_label.setFont(QFont("Arial", 12, QFont.Bold))
+        self.track_label.setFont(QFont("Arial", 13, QFont.Bold))
         self.artist_label = QLabel("Artist: -")
         self.album_label = QLabel("Album: -")
         self.source_label = QLabel("Source: -")
@@ -246,6 +251,7 @@ class SoundTouchGUI(QMainWindow):
         # Playback Controls
         playback_group = QGroupBox("Wiedergabe")
         playback_layout = QGridLayout()
+        playback_layout.setSpacing(8)
         
         # Transport controls
         btn_prev = self.create_button("⏮ Zurück", "PREV_TRACK")
@@ -329,40 +335,268 @@ class SoundTouchGUI(QMainWindow):
         return btn
         
     def apply_style(self):
-        """Apply custom styling."""
+        """Apply modern light mode styling."""
         self.setStyleSheet("""
+            /* Main Window */
             QMainWindow {
-                background-color: #f0f0f0;
+                background-color: #f8f9fa;
+                color: #2c3e50;
             }
+            
+            /* Central Widget */
+            QWidget {
+                background-color: #f8f9fa;
+                color: #2c3e50;
+            }
+            
+            /* Group Boxes */
             QGroupBox {
-                font-weight: bold;
-                border: 2px solid #cccccc;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
+                color: #2c3e50;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 12px;
+                padding-left: 10px;
+                padding-right: 10px;
+                padding-bottom: 10px;
+                font-weight: 600;
+                font-size: 12px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 5px 0 5px;
+                color: #2563eb;
             }
+            
+            /* Buttons - Primary (Blue) */
             QPushButton {
-                background-color: #4CAF50;
+                background-color: #2563eb;
                 color: white;
                 border: none;
-                padding: 8px;
-                border-radius: 4px;
-                font-weight: bold;
+                padding: 10px 16px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 11px;
             }
             QPushButton:hover {
-                background-color: #45a049;
+                background-color: #1d4ed8;
             }
             QPushButton:pressed {
-                background-color: #3d8b40;
+                background-color: #1e40af;
             }
+            QPushButton:disabled {
+                background-color: #e5e7eb;
+                color: #9ca3af;
+            }
+            
+            /* Buttons - Delete (Red) */
+            QPushButton#deleteBtn, QPushButton[styleType="delete"] {
+                background-color: #dc2626;
+            }
+            QPushButton#deleteBtn:hover, QPushButton[styleType="delete"]:hover {
+                background-color: #b91c1c;
+            }
+            
+            /* Buttons - Secondary (Orange) */
+            QPushButton#secondaryBtn {
+                background-color: #ea580c;
+            }
+            QPushButton#secondaryBtn:hover {
+                background-color: #c2410c;
+            }
+            
+            /* Tab Widget */
+            QTabWidget::pane {
+                border: 1px solid #e0e0e0;
+                background-color: #ffffff;
+            }
+            QTabBar::tab {
+                background-color: #f3f4f6;
+                color: #6b7280;
+                padding: 8px 20px;
+                border: 1px solid #e5e7eb;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #2563eb;
+                color: white;
+                border: 1px solid #2563eb;
+            }
+            QTabBar::tab:hover {
+                background-color: #e5e7eb;
+            }
+            
+            /* Line Edit / Text Input */
+            QLineEdit {
+                background-color: #ffffff;
+                color: #2c3e50;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 11px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #2563eb;
+            }
+            
+            /* Combo Box */
             QComboBox {
-                padding: 5px;
-                border: 1px solid #cccccc;
+                background-color: #ffffff;
+                color: #2c3e50;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 11px;
+            }
+            QComboBox:focus {
+                border: 2px solid #2563eb;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: url(noimg);
+            }
+            
+            /* Text Edit / Console */
+            QTextEdit {
+                background-color: #ffffff;
+                color: #4b5563;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                padding: 8px;
+                font-family: 'Courier New', monospace;
+                font-size: 10px;
+            }
+            
+            /* Label */
+            QLabel {
+                color: #2c3e50;
+            }
+            
+            /* Progress Bar */
+            QProgressBar {
+                background-color: #e5e7eb;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                text-align: center;
+                height: 20px;
+            }
+            QProgressBar::chunk {
+                background-color: #2563eb;
+                border-radius: 4px;
+            }
+            
+            /* List Widget */
+            QListWidget {
+                background-color: #ffffff;
+                color: #2c3e50;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 6px;
+                border-radius: 4px;
+            }
+            QListWidget::item:hover {
+                background-color: #f3f4f6;
+            }
+            QListWidget::item:selected {
+                background-color: #2563eb;
+                color: white;
+            }
+            
+            /* Tree Widget */
+            QTreeWidget {
+                background-color: #ffffff;
+                color: #2c3e50;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+            }
+            QTreeWidget::item {
+                padding: 4px;
+            }
+            QTreeWidget::item:hover {
+                background-color: #f3f4f6;
+            }
+            QTreeWidget::item:selected {
+                background-color: #2563eb;
+                color: white;
+            }
+            
+            /* Slider */
+            QSlider::groove:horizontal {
+                background-color: #d1d5db;
+                height: 6px;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background-color: #2563eb;
+                width: 18px;
+                margin: -6px 0;
+                border-radius: 9px;
+            }
+            QSlider::handle:horizontal:hover {
+                background-color: #1d4ed8;
+            }
+            
+            /* Scroll Bar */
+            QScrollBar:vertical {
+                background-color: #f8f9fa;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #cbd5e1;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #94a3b8;
+            }
+            QScrollBar:horizontal {
+                background-color: #f8f9fa;
+                height: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #cbd5e1;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+            
+            /* Message Box */
+            QMessageBox {
+                background-color: #f8f9fa;
+            }
+            QMessageBox QLabel {
+                color: #2c3e50;
+            }
+            
+            /* Dialog */
+            QDialog {
+                background-color: #f8f9fa;
+            }
+            
+            /* Checkbox */
+            QCheckBox {
+                color: #2c3e50;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 3px;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2563eb;
+                border: 1px solid #2563eb;
                 border-radius: 3px;
             }
         """)
@@ -435,12 +669,22 @@ class SoundTouchGUI(QMainWindow):
             
         device = self.device_combo.itemData(index)
         if device:
+            # Stop refresh timer before switching
+            self.refresh_timer.stop()
+            
             # Disconnect old WebSocket if any
             if self.websocket:
-                self.websocket.disconnect()
+                try:
+                    self.websocket.disconnect()
+                except Exception as e:
+                    print(f"Error disconnecting WebSocket: {e}")
                 self.websocket = None
             
             self.current_device = device
+            
+            # Clear streaming metadata cache when switching devices
+            self.media_player.currently_streaming_file = None
+            self.media_player.streaming_start_time = None
             
             # Quick check if device is reachable before attempting connection
             test_controller = SoundTouchController(device['ip'], timeout=2)
@@ -469,14 +713,15 @@ class SoundTouchGUI(QMainWindow):
                     self.refresh_timer.start(10000)
                 else:
                     self.statusBar().showMessage(f"Verbunden mit {device['name']} (Polling-Modus)", 3000)
-                    # WebSocket failed, use polling
-                    self.refresh_timer.start(2000)
+                    # WebSocket failed, use polling with shorter interval
+                    self.refresh_timer.start(1500)  # Update every 1.5 seconds
             except Exception as e:
                 # WebSocket connection failed, use polling instead
                 print(f"WebSocket connection failed: {e}")
                 self.statusBar().showMessage(f"Verbunden mit {device['name']} (Polling-Modus)", 3000)
-                self.refresh_timer.start(2000)
+                self.refresh_timer.start(1500)  # Update every 1.5 seconds
             
+            # Immediately refresh to show current state
             self.update_now_playing()
             self.update_device_info()
             # capture initial source if available
@@ -591,6 +836,10 @@ class SoundTouchGUI(QMainWindow):
     def _on_now_playing_updated(self, data):
         """WebSocket callback for now playing updates."""
         try:
+            # Only update if this is from the currently selected device
+            if not self.current_device or not self.controller:
+                return
+            
             self.track_label.setText(f"Track: {data.get('track', 'Unknown')}")
             self.artist_label.setText(f"Artist: {data.get('artist', 'Unknown')}")
             self.album_label.setText(f"Album: {data.get('album', 'Unknown')}")
@@ -603,6 +852,10 @@ class SoundTouchGUI(QMainWindow):
     def _on_volume_updated(self, data):
         """WebSocket callback for volume updates."""
         try:
+            # Only update if this is from the currently selected device
+            if not self.current_device or not self.controller:
+                return
+            
             volume = data.get('actualvolume', 0)
             # Volume is now controlled via buttons, no slider to update
             pass
@@ -616,21 +869,34 @@ class SoundTouchGUI(QMainWindow):
     
     def update_now_playing(self):
         """Update now playing information (fallback when WebSocket not available)."""
-        if not self.controller:
+        if not self.controller or not self.current_device:
             return
             
         try:
-            info = self.controller.get_nowplaying()
-            if info:
-                self.track_label.setText(f"Track: {info['track']}")
-                self.artist_label.setText(f"Artist: {info['artist']}")
-                self.album_label.setText(f"Album: {info['album']}")
-                self.source_label.setText(f"Source: {info['source']}")
-                self.last_source = info.get('source')
+            # First check if we're currently streaming a file locally
+            streaming_metadata = self.media_player.get_streaming_metadata()
+            
+            if streaming_metadata:
+                # Show metadata from locally streamed file
+                self.track_label.setText(f"Track: {streaming_metadata['track']}")
+                self.artist_label.setText(f"Artist: {streaming_metadata['artist']}")
+                self.album_label.setText(f"Album: {streaming_metadata['album']}")
+                self.source_label.setText("Source: Lokal (Streaming)")
+                self.last_source = "Lokal"
+            else:
+                # Fall back to device info
+                info = self.controller.get_nowplaying()
+                if info:
+                    self.track_label.setText(f"Track: {info.track}")
+                    self.artist_label.setText(f"Artist: {info.artist}")
+                    self.album_label.setText(f"Album: {info.album}")
+                    self.source_label.setText(f"Source: {info.source}")
+                    self.last_source = info.source
             
             # Volume is now controlled via buttons
         except Exception as e:
             pass
+
             
     def update_device_info(self):
         """Update device information display."""
@@ -677,7 +943,11 @@ class SoundTouchGUI(QMainWindow):
         """Handle window close."""
         self.refresh_timer.stop()
         if self.websocket:
-            self.websocket.disconnect()
+            try:
+                self.websocket.disconnect()
+            except Exception as e:
+                print(f"Error disconnecting WebSocket: {e}")
+            self.websocket = None
         if self.scanner and self.scanner.isRunning():
             self.scanner.quit()
             self.scanner.wait()

@@ -6,6 +6,7 @@ Integrated media player with streaming capabilities.
 
 import os
 import threading
+import json
 from typing import Optional, List
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QListWidget, QSlider, QFileDialog,
@@ -21,6 +22,9 @@ import subprocess
 from soundtouch_lib import SoundTouchController
 from soundtouch_websocket import SoundTouchWebSocket
 import sqlite3
+
+# Config file for storing last used folder
+CONFIG_FILE = os.path.expanduser("~/.opensoundtouch_config.json")
 
 
 
@@ -63,7 +67,7 @@ class MediaScanner(QThread):
 
 class DLNAServerStarter(QThread):
     """Background thread for starting DLNA server."""
-    server_started = pyqtSignal(object, str, str)  # (process, config_file, uuid)
+    server_started = pyqtSignal(object, str, str, str)  # (process, config_file, uuid, db_dir)
     server_failed = pyqtSignal(str)  # error message
     status_message = pyqtSignal(str)  # status updates
     
@@ -86,8 +90,8 @@ class DLNAServerStarter(QThread):
             except:
                 pass
             
-            # Create directories
-            minidlna_dir = os.path.join(self.media_folder, 'minidlna_opensoundtouch')
+            # Create directories in application root instead of media folder
+            minidlna_dir = os.path.join(os.getcwd(), 'minidlna_opensoundtouch')
             os.makedirs(minidlna_dir, exist_ok=True)
             db_dir = os.path.join(minidlna_dir, 'minidlna_db')
             log_dir = os.path.join(minidlna_dir, 'minidlna_logs')
@@ -166,7 +170,7 @@ uuid={server_uuid}
             if not os.path.exists(db_path):
                 self.status_message.emit("[DLNA] Warnung: Datenbank wurde noch nicht erstellt")
             
-            self.server_started.emit(dlna_process, config_file, server_uuid)
+            self.server_started.emit(dlna_process, config_file, server_uuid, db_dir)
             
         except Exception as e:
             self.status_message.emit(f"[DLNA] Fehler beim Start: {e}")
@@ -296,6 +300,8 @@ class MediaPlayerWidget(QWidget):
     start_monitor_signal = pyqtSignal()
     stop_monitor_signal = pyqtSignal()
     update_progress_signal = pyqtSignal(int, int)  # (position_ms, duration_ms)
+    log_notification_signal = pyqtSignal(str)  # For thread-safe logging
+    fetch_status_signal = pyqtSignal()
     
     def __init__(self, controller=None, device=None):
         super().__init__()
@@ -313,6 +319,11 @@ class MediaPlayerWidget(QWidget):
         self.playlist_cache = []  # List of files in current folder
         self.playlist_index = 0   # Current position in playlist
         
+        # Track currently streamed file for metadata
+        self.currently_streaming_file = None  # File currently being streamed to device
+        self.streaming_start_time = None  # When the stream started
+        self.minidlna_db_path = None  # Path to minidlna files.db for duration lookups
+        
         # WebSocket für asynchrone Benachrichtigungen
         self.ws = None
         self.notification_log = []
@@ -322,10 +333,10 @@ class MediaPlayerWidget(QWidget):
         self.player.positionChanged.connect(self.on_position_changed)
         self.player.durationChanged.connect(self.on_duration_changed)
         
-        # Periodischer Rescan Timer (alle 30 Sekunden)
+        # Periodischer Rescan Timer (alle 5 Sekunden)
         self.rescan_timer = QTimer()
         self.rescan_timer.timeout.connect(self.auto_rescan)
-        self.rescan_timer.setInterval(30000)  # 30 seconds
+        self.rescan_timer.setInterval(5000)  # 5 seconds
         
         # Track end detection timer
         self.track_monitor_timer = QTimer()
@@ -336,6 +347,13 @@ class MediaPlayerWidget(QWidget):
         self.progress_interpolation_timer = QTimer()
         self.progress_interpolation_timer.timeout.connect(self._interpolate_progress)
         self.progress_interpolation_timer.setInterval(500)  # Update every 500ms
+        
+        # Fast polling timer for immediate updates after stream start
+        self.fast_polling_timer = QTimer()
+        self.fast_polling_timer.timeout.connect(self._poll_status_fast)
+        self.fast_polling_timer.setInterval(300)  # Poll every 300ms
+        self.polling_attempts = 0
+        self.max_polling_attempts = 30  # 30 * 300ms = 9 seconds max
         
         # Track state tracking
         self.last_position_ms = 0
@@ -348,8 +366,13 @@ class MediaPlayerWidget(QWidget):
         self.start_monitor_signal.connect(self._start_monitor)
         self.stop_monitor_signal.connect(self._stop_monitor)
         self.update_progress_signal.connect(self._update_progress_ui)
+        self.log_notification_signal.connect(self._update_notification_console)
+        self.fetch_status_signal.connect(self._fetch_current_status)
         
         self.init_ui()
+        
+        # Load last used folder on startup
+        self._load_last_folder()
         
     def init_ui(self):
         """Initialize the UI."""
@@ -370,7 +393,6 @@ class MediaPlayerWidget(QWidget):
         
         # Status label
         self.folder_status = QLabel("")
-        self.folder_status.setStyleSheet("color: #666;")
         folder_layout.addWidget(self.folder_status)
         
         folder_group.setLayout(folder_layout)
@@ -383,7 +405,7 @@ class MediaPlayerWidget(QWidget):
         self.file_list = QTreeWidget()
         self.file_list.setHeaderLabels(["Datei", "Größe"])
         self.file_list.setColumnWidth(0, 400)
-        self.file_list.itemDoubleClicked.connect(self.on_file_selected)
+        self.file_list.itemClicked.connect(self.on_file_selected)
         files_layout.addWidget(self.file_list)
         
         self.scan_progress = QProgressBar()
@@ -399,7 +421,7 @@ class MediaPlayerWidget(QWidget):
         playback_layout = QVBoxLayout()
         
         # Current file info
-        self.current_label = QLabel("Keine Datei ausgewählt")
+        self.current_label = QLabel("Keine Datei ausgewählt / abgespielt")
         self.current_label.setWordWrap(True)
         playback_layout.addWidget(self.current_label)
         
@@ -421,7 +443,6 @@ class MediaPlayerWidget(QWidget):
         
         self.stream_btn = QPushButton("▶ Play")
         self.stream_btn.clicked.connect(self.stream_to_device)
-        self.stream_btn.setStyleSheet("background-color: #2196F3; color: white;")
         btn_layout.addWidget(self.stream_btn)
         
         # Playlist navigation buttons
@@ -442,11 +463,11 @@ class MediaPlayerWidget(QWidget):
         # Volume controls
         vol_layout = QHBoxLayout()
         
-        self.vol_down_btn = QPushButton("🔉 -")
+        self.vol_down_btn = QPushButton("Volume 🔉 -")
         self.vol_down_btn.clicked.connect(self.send_volume_down)
         vol_layout.addWidget(self.vol_down_btn)
         
-        self.vol_up_btn = QPushButton("🔊 +")
+        self.vol_up_btn = QPushButton("Volume 🔊 +")
         self.vol_up_btn.clicked.connect(self.send_volume_up)
         vol_layout.addWidget(self.vol_up_btn)
         
@@ -482,6 +503,17 @@ class MediaPlayerWidget(QWidget):
         self.controller = controller
         self.device = device
         
+        # Clear streaming metadata and progress when switching devices
+        # Note: keep cached_file_duration_ms for fallback
+        self.currently_streaming_file = None
+        self.streaming_start_time = None
+        self.last_position_ms = 0
+        self.last_duration_ms = 0
+        self.progress_slider.setValue(0)
+        self.progress_slider.setMaximum(0)
+        self.time_label_start.setText("0:00")
+        self.time_label_end.setText("0:00")
+        
         # Connect WebSocket for async notifications
         if device and device.get('ip'):
             try:
@@ -513,6 +545,9 @@ class MediaPlayerWidget(QWidget):
                 ws_thread = threading.Thread(target=self._connect_websocket, daemon=True)
                 ws_thread.start()
                 
+                # Fetch current status immediately via HTTP while WebSocket spins up
+                QTimer.singleShot(0, self._fetch_current_status)
+                
                 self._log_notification("[WS] Verbinde zu WebSocket...")
             except Exception as e:
                 self._log_notification(f"[WS] Fehler beim Verbinden: {e}")
@@ -524,6 +559,8 @@ class MediaPlayerWidget(QWidget):
         if folder:
             self.folder_input.setText(folder)
             self.media_folder = folder
+            # Save folder for next startup
+            self._save_last_folder(folder)
             self._log_notification("[DLNA] Starte DLNA Server...")
             # Starte minidlna für diesen Ordner (im Hintergrund)
             self.start_dlna_server()
@@ -602,7 +639,8 @@ class MediaPlayerWidget(QWidget):
         file_data = item.data(0, Qt.UserRole)
         if file_data:
             self.current_file = file_data
-            self.current_label.setText(f"Ausgewählt: {file_data['name']}")
+            # Don't show selected file - wait until it plays
+            # (will show in current_label when nowPlayingUpdated event arrives)
             
             # Build playlist cache from all files in the same folder
             current_folder = os.path.dirname(file_data['rel_path'])
@@ -747,6 +785,13 @@ class MediaPlayerWidget(QWidget):
             # Extrahiere Duration aus Datei als Fallback
             self._extract_file_duration(self.current_file['path'])
             
+            # Set currently streaming file BEFORE sending to device (avoid race condition)
+            # This ensures WebSocket notifications will find this file in the cache
+            self.currently_streaming_file = self.current_file
+            import time
+            self.streaming_start_time = time.time()
+            self._log_notification(f"[Stream] [Pre] Set currently_streaming_file: {self.current_file['name']}")
+            
             self._log_notification(f"[Stream] 📡 Sende über DLNA: {track_name}")
             print(f"[Stream] URL: {stream_url}")
             print(f"[Stream] Track: {track_name}")
@@ -760,11 +805,19 @@ class MediaPlayerWidget(QWidget):
             )
             
             if success:
+                # Log cache state when starting stream
                 self._log_notification(f"[Stream] ✓ DLNA-Playback gestartet: {track_name}")
                 print(f"[Stream] ✓ DLNA erfolgreich")
+                
+                # Start fast polling to get immediate updates
+                self.polling_attempts = 0
+                self.fast_polling_timer.start()
+                self._log_notification("[Poll] ⚡ Schnelles Polling gestartet (300ms)")
             else:
                 self._log_notification(f"[Stream] ✗ DLNA-Playback fehlgeschlagen")
                 print(f"[Stream] ✗ DLNA fehlgeschlagen")
+                self.currently_streaming_file = None
+                self.streaming_start_time = None
             
         except Exception as e:
             import traceback
@@ -776,6 +829,26 @@ class MediaPlayerWidget(QWidget):
     def stop_playback(self):
         """Stop local playback."""
         self.player.stop()
+        self.currently_streaming_file = None
+        self.streaming_start_time = None
+    
+    def get_streaming_metadata(self) -> dict:
+        """Get metadata of currently streaming file.
+        
+        Returns dict with track, artist, album info if streaming, else None.
+        """
+        if not self.currently_streaming_file:
+            return None
+        
+        file_info = self.currently_streaming_file
+        return {
+            'track': os.path.basename(file_info['rel_path']),
+            'artist': 'Lokal',
+            'album': 'Lokal',
+            'path': file_info['path'],
+            'rel_path': file_info['rel_path']
+        }
+    
     
     def send_stop_key(self):
         """Send STOP key to device."""
@@ -788,6 +861,9 @@ class MediaPlayerWidget(QWidget):
             success = self.controller.send_key("STOP")
             if success:
                 self._log_notification("[Control] ✓ STOP gesendet")
+                # Reset UI
+                self.current_label.setText("Keine Datei abgespielt")
+                self.currently_streaming_file = None
             else:
                 self._log_notification("[Control] ✗ STOP-Befehl fehlgeschlagen")
         except Exception as e:
@@ -836,16 +912,20 @@ class MediaPlayerWidget(QWidget):
         
         # If track ended (position very close to duration or beyond)
         if self.last_position_ms >= self.last_duration_ms - 500 and self.last_duration_ms > 0:
-            if self.current_play_status in ["PLAY_STATE", "PAUSE_STATE"]:
+            if self.current_play_status == "PLAY_STATE":
                 self._log_notification("[Monitor] ✓ Track beendet - spiele nächsten Track")
                 self.track_monitor_timer.stop()
                 # Wait a moment before playing next
-                QTimer.singleShot(1000, self.play_next)
+                QTimer.singleShot(1500, self.play_next)
     
     def play_next(self):
         """Play next file in playlist."""
-        if not self.playlist_cache:
-            self._log_notification("❌ Keine Playlist geladen")
+        if not self.playlist_cache or not self.controller:
+            self._log_notification("❌ Keine Playlist oder Gerät verbunden")
+            return
+        
+        if len(self.playlist_cache) <= 1:
+            self._log_notification("[Playlist] Nur ein Track - stoppe")
             return
         
         # Move to next
@@ -857,6 +937,7 @@ class MediaPlayerWidget(QWidget):
         self.current_label.setText(f"Ausgewählt: {next_file['name']}")
         
         print(f"[Playlist] Playing next: {next_file['name']} ({self.playlist_index + 1}/{len(self.playlist_cache)})")
+        self._log_notification(f"[Playlist] ▶ Nächster Track: {next_file['name']} ({self.playlist_index + 1}/{len(self.playlist_cache)})")
         
         # Stream it
         self.stream_to_device()
@@ -909,37 +990,107 @@ class MediaPlayerWidget(QWidget):
             if self.ws:
                 self.ws.connect()
                 self._log_notification("[WS] ✓ Verbunden")
+                
+                # Fetch current playback status immediately once the WebSocket is up
+                self.fetch_status_signal.emit()
         except Exception as e:
             self._log_notification(f"[WS] ✗ Fehler: {e}")
     
+    def _fetch_current_status(self):
+        """Fetch current playback status from device immediately after WebSocket connect."""
+        try:
+            if not self.controller:
+                return
+            
+            status = self.controller.get_nowplaying()
+            if status:
+                self._log_notification("[Status] 📊 Aktueller Status vom Gerät geladen")
+                # Trigger the same update handler as WebSocket would
+                self._on_now_playing_updated(status)
+        except Exception as e:
+            self._log_notification(f"[Status] Fehler beim Abrufen: {e}")
+    
     def _log_notification(self, message: str):
-        """Log a notification message to the console."""
+        """Log a notification message to the console (thread-safe)."""
         import datetime
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         full_msg = f"[{timestamp}] {message}"
         self.notification_log.append(full_msg)
         
-        # Update UI console
+        # Emit signal to update UI (thread-safe)
+        self.log_notification_signal.emit(full_msg)
+    
+    def _update_notification_console(self, message: str):
+        """Update the notification console from signal (guaranteed to be in GUI thread)."""
         if hasattr(self, 'notification_console'):
-            self.notification_console.append(full_msg)
+            self.notification_console.append(message)
             # Auto-scroll to bottom
             scrollbar = self.notification_console.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
     
+    def _save_last_folder(self, folder: str):
+        """Save the last used folder to config file."""
+        try:
+            config = {"last_folder": folder}
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config, f)
+            print(f"[Config] Ordner gespeichert: {folder}")
+        except Exception as e:
+            print(f"[Config] Fehler beim Speichern: {e}")
+    
+    def _load_last_folder(self):
+        """Load the last used folder from config file and open it."""
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+                    last_folder = config.get("last_folder")
+                    if last_folder and os.path.isdir(last_folder):
+                        self.folder_input.setText(last_folder)
+                        self.media_folder = last_folder
+                        print(f"[Config] Ordner geladen: {last_folder}")
+                        # Auto-start scanning
+                        QTimer.singleShot(500, self._auto_load_folder)
+        except Exception as e:
+            print(f"[Config] Fehler beim Laden: {e}")
+    
+    def _auto_load_folder(self):
+        """Auto-load the last folder after UI is ready."""
+        if self.media_folder and os.path.isdir(self.media_folder):
+            self._log_notification("[DLNA] Starte DLNA Server...")
+            self.start_dlna_server()
+            self.scan_folder(silent=True)
+            self.rescan_timer.start()
+    
     def _on_now_playing_updated(self, notification: dict):
         """Handle nowPlayingUpdated event from device."""
         try:
-            artist = notification.get('artist', '?')
-            album = notification.get('album', '?')
-            track = notification.get('track', '?')
-            play_status = notification.get('playStatus', '?')
+            # notification kann entweder ein dict sein (alt) oder NowPlayingStatus (neu)
+            if hasattr(notification, 'artist'):
+                # NowPlayingStatus object
+                artist = notification.artist
+                album = notification.album
+                track = notification.track
+                play_status = notification.play_status
+                position_ms = notification.position
+                
+                # Set fallback duration from file metadata if device omits it
+                if self.cached_file_duration_ms > 0:
+                    notification.set_duration_fallback(self.cached_file_duration_ms)
+                
+                duration_ms = notification.duration
+            else:
+                # dict (old format)
+                artist = notification.get('artist', '?')
+                album = notification.get('album', '?')
+                track = notification.get('track', '?')
+                play_status = notification.get('playStatus', '?')
+                position_ms = notification.get('position', 0)
+                duration_ms = notification.get('duration', 0)
+                location = notification.get('location')
             
             # Store play status for track end detection
             self.current_play_status = play_status
-            
-            # Update progress/duration from nowPlayingUpdated
-            position_ms = notification.get('position', 0)
-            duration_ms = notification.get('duration', 0)
             
             # Store timestamp for interpolation
             import time
@@ -948,14 +1099,34 @@ class MediaPlayerWidget(QWidget):
             # Store for track end detection
             self.last_position_ms = position_ms
             
-            # Use cached duration if device doesn't report it
-            if duration_ms > 0:
-                self.last_duration_ms = duration_ms
-            elif self.cached_file_duration_ms > 0:
-                duration_ms = self.cached_file_duration_ms
-                self.last_duration_ms = duration_ms
+            # Resolve duration: prefer device, then DLNA DB, then file metadata
+            if duration_ms <= 0:
+                # Try DLNA DB lookup using track title
+                db_duration_ms = self._lookup_duration_from_dlna_db(track) if track else 0
+                if db_duration_ms > 0:
+                    duration_ms = db_duration_ms
+                elif self.cached_file_duration_ms > 0:
+                    duration_ms = self.cached_file_duration_ms
+            
+            self.last_duration_ms = duration_ms if duration_ms else 0
+            
+            # Update current_label to show now playing track
+            # Use currently_streaming_file name if available, otherwise use track from notification
+            if play_status == "PLAY_STATE":
+                if self.currently_streaming_file:
+                    display_name = self.currently_streaming_file['name']
+                else:
+                    # Use track name from notification (for device switch scenario)
+                    display_name = track if track and track != '?' else "Unbekannt"
+                self.current_label.setText(f"🎵 Wird abgespielt: {display_name}")
+            elif play_status == "PAUSE_STATE":
+                if self.currently_streaming_file:
+                    display_name = self.currently_streaming_file['name']
+                else:
+                    display_name = track if track and track != '?' else "Unbekannt"
+                self.current_label.setText(f"⏸ Pausiert: {display_name}")
             else:
-                self.last_duration_ms = 0
+                self.current_label.setText("Keine Datei abgespielt")
             
             # Update UI via signal (thread-safe)
             if position_ms or duration_ms:
@@ -1002,6 +1173,132 @@ class MediaPlayerWidget(QWidget):
             self._log_notification(f"[Bass] {actualbass}")
         except Exception as e:
             self._log_notification(f"[Bass] Error: {e}")
+
+    def _lookup_duration_from_dlna_db(self, track_title: str) -> int:
+        """Look up duration (ms) from minidlna files.db using the track title."""
+        if not track_title:
+            self._log_notification("[DLNA DB] Kein Track-Titel für Lookup")
+            return 0
+        db_path = self._ensure_db_path()
+        if not db_path:
+            self._log_notification(f"[DLNA DB] Kein DB-Pfad verfügbar")
+            return 0
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            try:
+                # Clean up track title (remove .mp3 extension if present)
+                clean_title = track_title.replace('.mp3', '').replace('.m4a', '').replace('.flac', '')
+                self._log_notification(f"[DLNA DB] Suche '{clean_title}' in {db_path}")
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT DURATION FROM DETAILS WHERE TITLE = ? LIMIT 1",
+                    (clean_title,)
+                )
+                row = cur.fetchone()
+                if not row or row[0] is None:
+                    self._log_notification(f"[DLNA DB] ✗ Kein Eintrag für '{clean_title}'")
+                    return 0
+                raw_val = row[0]
+                try:
+                    # Parse duration - can be time format "0:02:39.984" or numeric
+                    if isinstance(raw_val, str) and ':' in raw_val:
+                        # Parse HH:MM:SS.mmm or MM:SS.mmm format
+                        parts = raw_val.split(':')
+                        if len(parts) == 3:  # HH:MM:SS.mmm
+                            hours = int(parts[0])
+                            minutes = int(parts[1])
+                            seconds = float(parts[2])
+                            duration_ms = int((hours * 3600 + minutes * 60 + seconds) * 1000)
+                        elif len(parts) == 2:  # MM:SS.mmm
+                            minutes = int(parts[0])
+                            seconds = float(parts[1])
+                            duration_ms = int((minutes * 60 + seconds) * 1000)
+                        else:
+                            self._log_notification(f"[DLNA DB] ✗ Ungültiges Format: {raw_val}")
+                            return 0
+                    else:
+                        # Numeric value (milliseconds)
+                        val = float(raw_val)
+                        duration_ms = int(val)
+                    
+                    self._log_notification(f"[DLNA DB] ✓ Gefunden: {duration_ms}ms ({duration_ms//1000}s) aus '{raw_val}'")
+                    return duration_ms
+                except (ValueError, TypeError) as e:
+                    self._log_notification(f"[DLNA DB] ✗ Parse-Fehler für '{raw_val}': {e}")
+                    return 0
+            finally:
+                conn.close()
+        except Exception as e:
+            self._log_notification(f"[DLNA DB] ✗ Fehler: {e}")
+            return 0
+
+    def _ensure_db_path(self) -> Optional[str]:
+        """Ensure we have a valid minidlna DB path, with fallbacks."""
+        if self.minidlna_db_path and os.path.exists(self.minidlna_db_path):
+            return self.minidlna_db_path
+        # Try to detect from current config
+        detected = self._detect_db_path_from_config(getattr(self, 'config_file', None))
+        if detected and os.path.exists(detected):
+            self.minidlna_db_path = detected
+            return detected
+        # Last resort: existing value even if missing
+        return self.minidlna_db_path
+
+    def _detect_db_path_from_config(self, config_file: Optional[str]) -> Optional[str]:
+        """Parse db_dir from minidlna config and provide sensible fallbacks."""
+        candidates = []
+        try:
+            if config_file and os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    for line in f:
+                        if line.strip().startswith('db_dir'):
+                            _, val = line.split('=', 1)
+                            db_dir = val.strip()
+                            if db_dir:
+                                candidates.append(os.path.abspath(db_dir))
+                                break
+                base_dir = os.path.dirname(config_file)
+                candidates.append(os.path.join(base_dir, 'minidlna_db', 'files.db'))
+                candidates.append(os.path.join(base_dir, '.db', 'files.db'))
+            # Repo-level fallback
+            candidates.append(os.path.join(os.getcwd(), 'minidlna_opensoundtouch', 'minidlna_db', 'files.db'))
+            candidates.append(os.path.join(os.getcwd(), 'minidlna', '.db', 'files.db'))
+            candidates.append(os.path.join(os.getcwd(), 'test_music', 'minidlna_opensoundtouch', 'minidlna_db', 'files.db'))
+            # Media-folder fallback (old location)
+            if self.media_folder:
+                candidates.append(os.path.join(self.media_folder, 'minidlna_opensoundtouch', 'minidlna_db', 'files.db'))
+                candidates.append(os.path.join(self.media_folder, 'minidlna', '.db', 'files.db'))
+        except Exception:
+            pass
+        # Pick first existing
+        for p in candidates:
+            if p and os.path.exists(p):
+                return p
+        # Otherwise return first candidate if any
+        return candidates[0] if candidates else None
+
+    def _resolve_path_from_location(self, location: str) -> Optional[str]:
+        """Resolve absolute file path from ContentItem location URL."""
+        if not location or not self.media_folder:
+            return None
+        try:
+            from urllib.parse import urlparse, unquote
+            parsed = urlparse(location)
+            rel_path = unquote(parsed.path.lstrip('/'))
+            abs_path = os.path.join(self.media_folder, rel_path)
+            return abs_path
+        except Exception:
+            return None
+
+    def _find_path_by_track(self, track: str) -> Optional[str]:
+        """Find a media file by track name in scanned files."""
+        if not track:
+            return None
+        for f in self.media_files:
+            if f['name'].lower() == track.lower() or f['name'].lower() == (track + '.mp3').lower():
+                return f['path']
+        return None
     
     # Thread-safe slot methods
     def _start_monitor(self):
@@ -1108,11 +1405,12 @@ class MediaPlayerWidget(QWidget):
         self.dlna_starter.status_message.connect(self._log_notification)
         self.dlna_starter.start()
     
-    def _on_dlna_server_started(self, process, config_file, server_uuid):
+    def _on_dlna_server_started(self, process, config_file, server_uuid, db_dir):
         """Handle DLNA server started successfully."""
         self.dlna_process = process
         self.config_file = config_file
         self.dlna_uuid = server_uuid
+        self.minidlna_db_path = os.path.join(db_dir, 'files.db')
         self._log_notification("[DLNA] ✓ Server erfolgreich gestartet")
     
     def _on_dlna_server_failed(self, error_msg):
@@ -1460,6 +1758,48 @@ class MediaPlayerWidget(QWidget):
         """Seek to position."""
         self.player.setPosition(position)
         
+    def _poll_status_fast(self):
+        """Fast polling for immediate status updates after stream start."""
+        self.polling_attempts += 1
+        
+        # Stop after max attempts
+        if self.polling_attempts >= self.max_polling_attempts:
+            self.fast_polling_timer.stop()
+            self._log_notification("[Poll] ⏹ Schnelles Polling beendet (Timeout)")
+            return
+        
+        try:
+            if not self.controller:
+                self.fast_polling_timer.stop()
+                return
+            
+            status = self.controller.get_nowplaying()
+            if status:
+                # Extract status for logging and stop condition
+                if hasattr(status, 'play_status'):
+                    play_status = status.play_status
+                    position_ms = status.position
+                else:
+                    play_status = status.get('playStatus', '')
+                    position_ms = status.get('position', 0)
+                
+                # Log what we got (only on significant changes)
+                if self.polling_attempts <= 3 or play_status == "PLAY_STATE":
+                    self._log_notification(f"[Poll] #{self.polling_attempts}: {play_status} pos={position_ms}ms")
+                
+                # Trigger update handler
+                self._on_now_playing_updated(status)
+                
+                # Stop fast polling once we see PLAY_STATE with position > 0
+                # Also accept BUFFERING_STATE as it means track is loading
+                if (play_status == "PLAY_STATE" and position_ms > 0) or \
+                   (play_status == "PLAY_STATE" and self.polling_attempts >= 10):
+                    self.fast_polling_timer.stop()
+                    self._log_notification(f"[Poll] ✓ Schnelles Polling beendet (Track läuft, {self.polling_attempts} Versuche)")
+        except Exception as e:
+            # Log error for debugging
+            self._log_notification(f"[Poll] Fehler bei Versuch {self.polling_attempts}: {e}")
+    
     def closeEvent(self, event):
         """Handle widget close."""
         self.player.stop()
@@ -1467,4 +1807,7 @@ class MediaPlayerWidget(QWidget):
             self.stop_stream_server()
         # Stoppe minidlna
         self.stop_dlna_server()
+        # Stop polling timers
+        if hasattr(self, 'fast_polling_timer'):
+            self.fast_polling_timer.stop()
         event.accept()

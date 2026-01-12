@@ -124,48 +124,65 @@ class DLNAHelper:
         
         return None, None, None
     
-    def set_av_transport_uri(self, resource_url: str, title: str = "Unknown", 
-                             protocol_info: str = "http-get:*:audio/mpeg:*") -> bool:
+    def set_av_transport_uri(self, resource_url: str, title: str = "Unknown",
+                             protocol_info: str = "http-get:*:audio/mpeg:*",
+                             artist: str = "Unknown", album: str = "Unknown") -> bool:
         """
         Send SetAVTransportURI SOAP command to Bose device.
-        
+
         Args:
             resource_url: Full HTTP URL to media file
             title: Friendly title for the track
             protocol_info: DLNA protocol info string
-        
+            artist: Artist name
+            album: Album name
+
         Returns True if successful.
         """
         if not self.device_ip:
             print("[DLNA] Device IP not set")
             return False
-        
-        # Build DIDL-Lite metadata with proper structure
-        didl_object = f"""<item id="0" parentID="-1" restricted="1">
-  <dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">{title}</dc:title>
-  <upnp:class xmlns:upnp="urn:schemas-upnp-org:metadata-1-0:upnp">object.item.audioItem.musicTrack</upnp:class>
-  <res protocolInfo="{protocol_info}">{resource_url}</res>
-</item>"""
-        
+
+        # Escape XML special characters in metadata and resource
+        title_escaped = html.escape(title) if title else "Unknown"
+        artist_escaped = html.escape(artist) if artist else "Unknown"
+        album_escaped = html.escape(album) if album else "Unknown"
+        res_url_escaped = html.escape(resource_url) if resource_url else ""
+        protocol_info_escaped = html.escape(protocol_info) if protocol_info else ""
+
+        # Build full DIDL-Lite and then escape once for SOAP payload
+        didl_lite = f"""<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
+  <item id="0" parentID="-1" restricted="1">
+    <dc:title>{title_escaped}</dc:title>
+    <dc:creator>{artist_escaped}</dc:creator>
+    <upnp:artist role="Performer">{artist_escaped}</upnp:artist>
+    <upnp:album>{album_escaped}</upnp:album>
+    <upnp:class>object.item.audioItem.musicTrack</upnp:class>
+    <res protocolInfo="{protocol_info_escaped}">{res_url_escaped}</res>
+  </item>
+</DIDL-Lite>"""
+
+        current_uri_metadata = html.escape(didl_lite)
+
         soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
     <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
       <InstanceID>0</InstanceID>
       <CurrentURI>{resource_url}</CurrentURI>
-      <CurrentURIMetaData>&lt;DIDL-Lite xmlns="urn:schemas-dlna-org:metadata-1-0:didl-lite" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0:upnp"&gt;{didl_object}&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+      <CurrentURIMetaData>{current_uri_metadata}</CurrentURIMetaData>
     </u:SetAVTransportURI>
   </s:Body>
 </s:Envelope>"""
-        
+
         headers = {
             'HOST': f'{self.device_ip}:{self.device_dlna_port}',
             'Content-Type': 'text/xml; charset=utf-8',
             'SOAPACTION': '"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI"',
         }
-        
+
         url = f"http://{self.device_ip}:{self.device_dlna_port}/AVTransport/Control"
-        
+
         try:
             response = requests.post(url, data=soap_body, headers=headers, timeout=self.timeout)
             return response.status_code == 200

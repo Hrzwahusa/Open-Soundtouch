@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QMessageBox, QListWidgetItem, QDialog, QDialogButtonBox,
                              QCheckBox, QScrollArea, QGridLayout)
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QColor
 from soundtouch_lib import SoundTouchGroupManager, SoundTouchController
 
 
@@ -176,12 +177,11 @@ class GroupManagerWidget(QWidget):
         
         create_btn = QPushButton("➕ Neue Gruppe")
         create_btn.clicked.connect(self.create_group)
-        create_btn.setStyleSheet("background-color: #4CAF50; color: white;")
         group_actions.addWidget(create_btn)
         
         delete_btn = QPushButton("🗑 Gruppe löschen")
         delete_btn.clicked.connect(self.delete_group)
-        delete_btn.setStyleSheet("background-color: #f44336; color: white;")
+        delete_btn.setProperty("styleType", "delete")
         group_actions.addWidget(delete_btn)
         
         groups_layout.addLayout(group_actions)
@@ -241,9 +241,11 @@ class GroupManagerWidget(QWidget):
         layout.addStretch()
         
     def set_devices(self, devices):
-        """Update the device list."""
+        """Update the device list and load existing groups."""
         self.devices = devices
         self.group_manager = SoundTouchGroupManager(devices)
+        # Load existing groups from devices
+        self.group_manager.load_groups_from_devices()
         self.refresh_groups()
         
     def create_group_button(self, text, key):
@@ -304,6 +306,15 @@ class GroupManagerWidget(QWidget):
         self.group_list.clear()
         
         if not self.group_manager:
+            return
+        
+        # Show message if no groups exist
+        if not self.group_manager.groups:
+            item = QListWidgetItem("Keine Gruppen - Erstelle eine neue!")
+            item.setFlags(item.flags() & ~Qt.ItemIsSelectable)  # Make non-selectable
+            item.setForeground(QColor(120, 120, 120))
+            self.group_list.addItem(item)
+            self.details_label.setText("Keine Gruppen vorhanden. Erstelle eine neue Gruppe, um mehrere Geräte zu synchronisieren.")
             return
             
         for i, group in enumerate(self.group_manager.groups):
