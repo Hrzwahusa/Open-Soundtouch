@@ -1,573 +1,247 @@
-# Bose SoundTouch Device Control
+# Open-Soundtouch 🎵
 
-Eine umfassende Python-Anwendung zur Erkennung und Steuerung von Bose SoundTouch Geräten im lokalen WLAN-Netzwerk mit vollständiger API-Implementierung aller 30+ Endpoints.
+> **⚠️ WORK IN PROGRESS**  
+> Dieses Projekt befindet sich in aktiver Entwicklung. Features und APIs können sich noch ändern.  
+> Beiträge und Feedback sind willkommen!
 
-## Architektur
-
-Das Projekt ist modular aufgebaut, um maximale Wiederverwendbarkeit zu ermöglichen:
-
-```
-soundtouch_lib.py          - Core Library (reusable)
-├── SoundTouchDiscovery     - Network scanning & device detection
-└── SoundTouchController    - Device control & status (30+ Methoden)
-
-soundtouch_discovery.py    - CLI Tool (Discovery)
-soundtouch_controller.py   - CLI Tool (Control)
-soundtouch_api.py          - REST API Server (FastAPI mit 40+ Endpoints)
-```
-
-## Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-## Features
-
-### 🌐 Netzwerk
-- **Automatische Netzwerk-Erkennung**: Findet automatisch das lokale Subnetz
-- **Multi-Threading**: Scannt mehrere IPs gleichzeitig (configurable threads)
-- **JSON-Export**: Speichert gefundene Geräte für spätere Nutzung
-
-### 📶 WiFi Setup
-- **Setup-Steuerung**: `SETUP_WIFI` starten/beenden ohne Bose-App
-- **WiFi-Profile hinzufügen**: SSID/Passwort/Sicherheit direkt hinterlegen
-- **Site Survey**: Verfügbare Netzwerke am Speaker scannen
-
-### 🎮 Basis-Steuerung
-- **Remote Keypresses**: Play, Pause, Next, Previous, Volume, Mute, etc.
-- **Presets**: Direkter Preset-Zugriff (Preset 1-6)
-- **Status Abfrage**: Aktuelle Musik-Info (Artist, Track, Album, Source)
-
-### 🔊 Audio-Kontrolle
-- **Lautstärke**: 0-100%, mit Stummschaltung
-- **Bass/Treble**: Feineinstellung wenn unterstützt
-- **Audio-Modi**: NORMAL, DIALOG, NACHT, DIRECT
-- **Lautsprecher-Level**: Front/Rear Separate Kontrolle
-- **Audio DSP**: Video Sync Delay (für Heimkino)
-
-### 🎵 Musik-Kontrolle
-- **Source/Input-Auswahl**: AUX, Bluetooth, Spotify, TuneIn, etc.
-- **Presets**: Auflisten und Zugriff auf gespeicherte Favoriten
-- **Bass-Fähigkeiten**: Dynamisches Auslesen von Bass-Min/Max
-
-### 🏠 Multi-Room Audio
-- **Zone Management**: Verbinde mehrere Geräte
-- **Master/Slave**: Definiere Master-Gerät
-- **Synchronized Playback**: Alle Geräte spielen gleiche Musik
-- **Dynamische Slave-Verwaltung**: Hinzufügen/Entfernen von Geräten
-
-### 📡 DLNA / Lokales Streaming
-- **DLNA-Playback (8091)** über `soundtouch_lib` + `DLNAHelper`
-- **MiniDLNA (8200)** für lokales Medien-Serving; Ordner `test_music/` & `minidlna/` bleiben lokal
-- **GUI Media Player Tab**: Streams per HTTP-Server + DLNA an das Gerät senden
-- **Playlist-Cycling**: Bei DLNA-Quelle navigieren „Zurück/Weiter“ im Steuerungs-Tab durch den gecachten Ordner
-- **Fallback**: Bei anderen Quellen senden die Buttons normale Key-Befehle
-
-### 📱 API & Integration
-- **REST API**: FastAPI Server mit 40+ Endpoints
-- **Swagger Docs**: Auto-generierte API Dokumentation (/docs)
-- **Python Library**: Reusable für eigene Projekte
-- **Error Handling**: Robuste Fehlerbehandlung mit Status Codes
+Vollständige Python-Implementierung der Bose SoundTouch Web API v1.0 mit erweiterten Features: GUI-Anwendung, DLNA-Streaming, Multi-Room-Verwaltung und Echtzeit-Updates via WebSocket.
 
 ---
 
-## CLI Verwendung
+## 📋 Überblick
 
-### Discovery - Geräte finden
+Open-Soundtouch ist eine umfassende Python-Bibliothek zur Steuerung von Bose SoundTouch-Geräten über das lokale Netzwerk. Das Projekt implementiert die gesamte offizielle REST-API und bietet zusätzlich:
+
+- 🔍 **Automatische Geräte-Erkennung** via SSDP/UPnP
+- 🎵 **DLNA Media Streaming** mit minidlna Integration
+- 🏠 **Multi-Room Zonen-Verwaltung** für synchrone Wiedergabe
+- 🖥️ **GUI-Anwendung** mit PyQt5 (Linux/Windows/Android)
+- 🔌 **WebSocket-Support** für Echtzeit-Status-Updates
+- 🌐 **FastAPI REST-Server** mit 40+ Endpoints
+
+---
+
+## 📁 Architektur
+
+Das Projekt ist modular aufgebaut für maximale Wiederverwendbarkeit und Erweiterbarkeit:
+
+```
+Core Library
+├── soundtouch_lib.py          - API-Wrapper (30+ Methoden)
+│   ├── SoundTouchDiscovery    - Netzwerk-Scanning
+│   └── SoundTouchController   - Geräte-Kontrolle
+├── soundtouch_websocket.py    - WebSocket-Client
+├── soundtouch_media.py        - Media Player
+└── dlna_helper.py             - DLNA Server Management
+
+CLI Tools
+├── soundtouch_discovery.py    - Geräte suchen
+└── soundtouch_controller.py   - Geräte steuern
+
+REST API
+└── soundtouch_api.py          - FastAPI Server (40+ Endpoints)
+
+GUI Anwendungen
+├── gui_linux_windows.py       - Desktop GUI (PyQt5)
+├── gui_android.py             - Android GUI (Kivy)
+├── gui_media_player.py        - Media Player mit DLNA
+└── gui_group_manager.py       - Multi-Room Manager
+```
+
+### Neueste Features (WIP)
+
+- ⚡ **Fast Polling**: 300ms Schnell-Update nach Stream-Start für sofortige Status-Synchronisation
+- 📊 **DLNA Metadata Sync**: Automatische Synchronisation von Titel, Künstler und Duration aus minidlna DB
+- 🔄 **Verbesserter Status-Parser**: Unterstützung für XML-Attribute und Child-Elemente
+- 💿 **Lokale Media-Verwaltung**: Integrierte minidlna-Datenbank im Anwendungsverzeichnis
+
+---
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
-# Auto-Detect (erkennt Netzwerk automatisch)
+# Repository klonen
+git clone https://github.com/Hrzwahusa/Open-Soundtouch.git
+cd Open-Soundtouch
+
+# Abhängigkeiten installieren
+pip install -r requirements.txt
+
+# Optional: Vollständige Installation mit GUI
+chmod +x install_all.sh
+./install_all.sh
+```
+
+### Grundlegende Verwendung
+
+**Geräte finden:**
+```bash
+python soundtouch_discovery.py
+```
+
+**Geräte steuern:**
+```bash
+# Lautstärke setzen
+python soundtouch_controller.py --ip 192.168.50.156 --volume 50
+
+# Musik abspielen
+python soundtouch_controller.py --ip 192.168.50.156 --key play
+```
+
+**GUI starten:**
+```bash
+./start_gui.sh
+# oder
+python gui_linux_windows.py
+```
+
+---
+
+## ✨ Features
+
+### 🌐 Netzwerk & Erkennung
+- SSDP/UPnP-basierte Geräte-Erkennung im lokalen Netzwerk
+- Paralleles Multi-Threading für schnelles Scanning (bis zu 254 IPs)
+- Automatische Extraktion von IP, MAC-Adresse und Gerätename
+- Persistente Geräteverwaltung über `soundtouch_devices.json`
+
+### 🎵 Media & DLNA
+- **DLNA-Server Integration** via minidlna
+- Lokale Musik-Bibliothek mit automatischem Rescan (5s Intervall)
+- Echtzeit-Metadaten-Synchronisation (Titel, Künstler, Duration)
+- SQLite-basierte Media-Datenbank
+- Support für MP3, FLAC, WAV und weitere Formate
+- Fast-Polling (300ms) für sofortige Status-Updates nach Stream-Start
+
+### 🎮 Geräte-Steuerung
+- **Playback-Kontrolle**: Play, Pause, Stop, Next, Previous
+- **Lautstärke**: Volume 0-100, Mute/Unmute
+- **Audio-Einstellungen**: Bass & Treble (Tone Controls)
+- **Audio-DSP-Modi**: Normal, Dialog, Night, Direct
+- **Source-Wechsel**: Bluetooth, AUX, Spotify, TuneIn, DLNA, etc.
+- **Presets**: Favoriten speichern und abrufen (6 Slots)
+- **Tastatur-Simulation**: Navigation über virtuelle Tasten
+
+### 🏠 Multi-Room (Zonen)
+- Zonen-Erstellung für synchrone Wiedergabe auf mehreren Geräten
+- Master/Slave-Architektur
+- Dynamisches Hinzufügen/Entfernen von Slaves
+- Gruppensteuerung über GUI
+- MAC-Adress-basierte Identifikation
+
+### 🔌 Echtzeit-Updates
+- **WebSocket-Client** für Live-Status-Updates
+- **Fast-Polling-Modus** (300ms) nach Stream-Start
+- Automatische Synchronisation zwischen Geräten
+- Push-Benachrichtigungen für Statusänderungen
+
+### 🌐 WiFi & Konfiguration
+- WiFi-Netzwerk-Scanning und -Auswahl
+- WPA2-Authentifizierung
+- WiFi-Profil-Management
+- Netzwerk-Diagnose
+
+---
+
+## 📖 Dokumentation
+
+### CLI-Tools
+
+#### Geräte-Erkennung
+
+```bash
+# Standard-Netzwerk scannen
 python soundtouch_discovery.py
 
-# Mit spezifischem Netzwerk
-python soundtouch_discovery.py --network 192.168.1.0/24
+# Benutzerdefiniertes Netzwerk
+python soundtouch_discovery.py --network 192.168.100.0/24
 
-# Mit benutzerdefinierten Optionen
-python soundtouch_discovery.py --port 8090 --threads 50
-
-# Output: soundtouch_devices.json
+# Schnelleres Scanning
+python soundtouch_discovery.py --threads 200
 ```
 
-### Controller - Geräte steuern
+#### Geräte-Steuerung
 
 ```bash
-# Tastaturpresse senden
-python soundtouch_controller.py 192.168.50.156 --key play
-python soundtouch_controller.py 192.168.50.156 --key volume_up
-python soundtouch_controller.py 192.168.50.156 --key next
+# Lautstärke
+python soundtouch_controller.py --ip 192.168.50.156 --volume 50
+python soundtouch_controller.py --ip 192.168.50.156 --volume 30 --mute
 
-# Verfügbare Tasten anzeigen
-python soundtouch_controller.py 192.168.50.156 --list
+# Tasten
+python soundtouch_controller.py --ip 192.168.50.156 --key play
+python soundtouch_controller.py --ip 192.168.50.156 --key next
 
-# Aktuelle Status abfragen
-python soundtouch_controller.py 192.168.50.156 --status
-```
-
-**Verfügbare Keys:**
-play, pause, stop, power, next, previous, mute, volume_up, volume_down, preset1-6, thumbsup, thumbsdown, shuffle, repeat, add_favorite, remove_favorite, bookmark, bookmark_add, bookmark_remove, language
-
----
-
-## REST API Server
-
-### Starten
-
-```bash
-python soundtouch_api.py
-```
-
-**Zugriff:**
-- API: http://localhost:8000
-- Swagger Docs: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-### 📡 Discovery Endpoints
-
-```bash
-GET /api/discover
-  ?network=192.168.1.0/24
-  &port=8090
-  &threads=50
-
-Response:
-{
-  "devices": [
-    {
-      "ip": "192.168.50.156",
-      "mac": "A81B6A632A40",
-      "name": "Wohnzimmer",
-      "type": "SoundTouch 20",
-      "status": "OK"
-    }
-  ]
-}
-```
-
-### 🎮 Control Endpoints
-
-```bash
-# Taste senden
-POST /api/control/{ip}/key
-  ?key=play
-
-# Alle Tasten auflisten
-GET /api/keys
-
-# Health Check
-GET /api/health
-```
-
-### 🔊 Volume Endpoints
-
-```bash
-# Lautstärke auslesen
-GET /api/control/{ip}/volume
-
-Response: {
-  "targetvolume": 30,
-  "actualvolume": 30,
-  "muteenabled": false
-}
-
-# Lautstärke setzen
-POST /api/control/{ip}/volume
-  ?volume=50
-  &mute=false
-```
-
-### 🎼 Bass Endpoints
-
-```bash
-# Bass-Fähigkeiten auslesen
-GET /api/control/{ip}/bass-capabilities
-
-Response: {
-  "bassAvailable": true,
-  "bassMin": -10,
-  "bassMax": 10,
-  "bassDefault": 0
-}
-
-# Bass-Wert auslesen
-GET /api/control/{ip}/bass
-
-Response: {
-  "actualbassnow": 5,
-  "bassmutable": false
-}
-
-# Bass setzen
-POST /api/control/{ip}/bass?bass=5
-```
-
-### 📡 Source Endpoints
-
-```bash
-# Verfügbare Quellen auflisten
-GET /api/control/{ip}/sources
-
-Response: {
-  "sources": [
-    {
-      "source": "AUX",
-      "sourceAccount": "AUX",
-      "status": "READY",
-      "name": "Aux Input"
-    }
-  ]
-}
+# Bass
+python soundtouch_controller.py --ip 192.168.50.156 --bass 5
 
 # Source wechseln
-POST /api/control/{ip}/source
-  ?source=AUX
-  &source_account=AUX
+python soundtouch_controller.py --ip 192.168.50.156 --source BLUETOOTH
 
-POST /api/control/{ip}/source?source=BLUETOOTH
+# Status abrufen
+python soundtouch_controller.py --ip 192.168.50.156 --nowplaying
+python soundtouch_controller.py --ip 192.168.50.156 --info
 ```
 
-### 🎚️ Presets Endpoint
+### Python Library
 
-```bash
-# Presets auflisten
-GET /api/control/{ip}/presets
-
-Response: {
-  "presets": [
-    {
-      "id": "1",
-      "source": "SPOTIFY",
-      "sourceAccount": "user@spotify",
-      "itemName": "My Playlist"
-    }
-  ]
-}
-```
-
-### 🎛️ Audio Control Endpoints
-
-```bash
-# Audio DSP Settings (Audio-Modi)
-GET /api/control/{ip}/audio-dsp
-
-Response: {
-  "audiomode": "AUDIO_MODE_NORMAL",
-  "videosyncaudiodelay": 0,
-  "supportedaudiomodes": [
-    "AUDIO_MODE_DIRECT",
-    "AUDIO_MODE_NORMAL",
-    "AUDIO_MODE_DIALOG",
-    "AUDIO_MODE_NIGHT"
-  ]
-}
-
-# Audio-Modus wechseln
-POST /api/control/{ip}/audio-dsp
-  ?audiomode=AUDIO_MODE_DIALOG
-
-# Bass & Treble (Tone Controls)
-GET /api/control/{ip}/tone-controls
-POST /api/control/{ip}/tone-controls
-  ?bass=5
-  &treble=3
-
-# Lautsprecher-Level (Vorne/Hinten)
-GET /api/control/{ip}/level-controls
-POST /api/control/{ip}/level-controls
-  ?front=5
-  &rear=3
-```
-
-### 🏠 Zone Management Endpoints
-
-```bash
-# Zone auslesen
-GET /api/control/{ip}/zone
-
-Response: {
-  "master": "A81B6A632A40",
-  "members": [
-    {
-      "ipaddress": "192.168.50.156",
-      "macaddress": "A81B6A632A40",
-      "is_master": true
-    }
-  ]
-}
-
-# Multi-Room Zone erstellen
-POST /api/control/{ip}/zone
-
-Body: {
-  "master_mac": "A81B6A632A40",
-  "members": [
-    {
-      "ip": "192.168.50.156",
-      "mac": "A81B6A632A40"
-    },
-    {
-      "ip": "192.168.50.157",
-      "mac": "A81B6A632A41"
-    }
-  ]
-}
-
-# Slave hinzufügen
-POST /api/control/{ip}/zone/slave/add
-  ?master_mac=A81B6A632A40
-  &slave_ip=192.168.50.157
-  &slave_mac=A81B6A632A41
-
-# Slave entfernen
-POST /api/control/{ip}/zone/slave/remove
-  ?master_mac=A81B6A632A40
-  &slave_mac=A81B6A632A41
-```
-
-### 🎵 Status & Info Endpoints
-
-```bash
-# Aktuelle Musik-Info
-GET /api/control/{ip}/nowplaying
-
-Response: {
-  "source": "SPOTIFY",
-  "artist": "Artist Name",
-  "track": "Song Title",
-  "album": "Album Name",
-  "artwork": "http://..."
-}
-
-# Gerät-Fähigkeiten
-GET /api/control/{ip}/capabilities
-
-Response: [
-  {
-    "name": "productCapsQuery",
-    "url": "/productcapsquery"
-  }
-]
-```
-
-### 🔧 Device Management
-
-```bash
-# Gerätename ändern
-POST /api/control/{ip}/name?name=Wohnzimmer
-```
-
-### 📶 WiFi Setup & Onboarding
-
-```bash
-# WiFi-Setup starten/beenden (state z.B. SETUP_WIFI, SETUP_WIFI_LEAVE)
-POST /api/control/{ip}/setup
-Body: {"state": "SETUP_WIFI", "timeout_ms": 3000}
-
-# WiFi-Profil hinzufügen
-POST /api/control/{ip}/wifi-profile
-Body: {"ssid": "MySSID", "password": "MyPass", "security_type": "wpa_or_wpa2", "timeout": 30}
-
-# Aktives WiFi-Profil abfragen
-GET /api/control/{ip}/wifi-profile
-
-# Site Survey (sichtbare Netze in Speaker-Nähe)
-GET /api/control/{ip}/wifi-site-survey
-```
-
----
-
-## Python Library - Detaillierte Beispiele
-
-### Basis-Setup
+#### Discovery & Connection
 
 ```python
 from soundtouch_lib import SoundTouchDiscovery, SoundTouchController
 
-# Geräte finden
+# Geräte im Netzwerk finden
 scanner = SoundTouchDiscovery()
-devices = scanner.scan()  # Scannt automatisches Netzwerk
+devices = scanner.scan()
 
-# Mit benutzerdefiniertem Netzwerk
-scanner = SoundTouchDiscovery(network="192.168.1.0/24")
-devices = scanner.scan(max_threads=100)
-
-# Geräte durchlaufen
 for device in devices:
-    print(f"{device['name']} ({device['type']}) at {device['ip']}")
+    print(f"{device['name']} - {device['ip']} - {device['mac']}")
 
-# Gerät steuern
+# Mit Gerät verbinden
 controller = SoundTouchController("192.168.50.156")
 ```
 
-### 🎮 Tastatureingaben
+#### Playback Control
 
 ```python
-from soundtouch_lib import SoundTouchController
-
-controller = SoundTouchController("192.168.50.156")
-
-# Playback-Kontrolle
+# Musik steuern
 controller.send_key("play")
 controller.send_key("pause")
 controller.send_key("stop")
-
-# Navigation
 controller.send_key("next")
 controller.send_key("previous")
 
-# Lautstärke (über Tasten)
-controller.send_key("volume_up")
-controller.send_key("volume_down")
-controller.send_key("mute")
+# Lautstärke
+controller.set_volume(50)
+controller.set_volume(30, mute=True)
 
-# Favoriten
-controller.send_key("add_favorite")
-controller.send_key("remove_favorite")
-
-# Presets (direkter Zugriff)
-controller.send_key("preset1")
-controller.send_key("preset2")
-controller.send_key("preset6")
-
-# Alle verfügbaren Tasten anzeigen
-keys = SoundTouchController.get_available_keys()
-for key in keys:
-    print(key)
+# Status abrufen
+status = controller.get_nowplaying()
+if status:
+    print(f"🎵 {status['artist']} - {status['track']}")
+    print(f"   Album: {status['album']}")
+    print(f"   Source: {status['source']}")
 ```
 
-### 🔊 Lautstärke-Kontrolle
+#### Audio Settings
 
 ```python
-# Lautstärke auslesen
-volume_data = controller.get_volume()
-if volume_data:
-    print(f"Aktuelle Lautstärke: {volume_data['actualvolume']}/100")
-    print(f"Stummgeschaltet: {volume_data['muteenabled']}")
+# Bass & Treble
+controller.set_bass(5)
+controller.set_tone_controls(bass=5, treble=3)
 
-# Lautstärke setzen
-controller.set_volume(50)              # 50%
-controller.set_volume(30, mute=True)   # 30% + Stummschaltung
-controller.set_volume(100, mute=False) # 100% + Laut
-```
-
-### 🎼 Bass & Treble
-
-```python
-# Bass-Fähigkeiten prüfen
-caps = controller.get_bass_capabilities()
-if caps and caps['bassAvailable']:
-    print(f"Bass-Bereich: {caps['bassMin']} bis {caps['bassMax']}")
-    print(f"Standard: {caps['bassDefault']}")
-    
-    # Bass auslesen
-    bass_data = controller.get_bass()
-    if bass_data:
-        print(f"Aktueller Bass: {bass_data['actualbass']}")
-    
-    # Bass setzen
-    if controller.set_bass(5):
-        print("Bass auf 5 gesetzt")
-
-# Bass & Treble zusammen
-tone = controller.get_tone_controls()
-if tone:
-    print(f"Bass: {tone['bass']['value']}")
-    print(f"Treble: {tone['treble']['value']}")
-
-# Einstellen
-if controller.set_tone_controls(bass=5, treble=3):
-    print("Bass & Treble eingestellt")
-```
-
-### 📡 Source/Input-Kontrolle
-
-```python
-# Verfügbare Quellen auflisten
-sources = controller.get_sources()
-if sources:
-    for source in sources['sources']:
-        print(f"{source['source']}: {source['name']} ({source['status']})")
-
-# Source wechseln
-controller.select_source("AUX", "AUX")
-controller.select_source("BLUETOOTH")
-controller.select_source("SPOTIFY", "user@spotify")
-controller.select_source("TUNEIN")
-controller.select_source("LOCAL_INTERNET_RADIO")
-
-# Prüfen ob erfolgreich
-if controller.select_source("AUX"):
-    print("Source gewechselt zu AUX")
-```
-
-### 🎚️ Audio-Modi
-
-```python
-# Audio DSP Settings auslesen
-dsp = controller.get_audio_dsp_controls()
-if dsp:
-    print(f"Audio-Modus: {dsp['audiomode']}")
-    print(f"Unterstützte Modi:")
-    for mode in dsp['supportedaudiomodes']:
-        print(f"  - {mode}")
-
-# Audio-Modus wechseln
-controller.set_audio_dsp_controls(audiomode="AUDIO_MODE_NORMAL")
-controller.set_audio_dsp_controls(audiomode="AUDIO_MODE_DIALOG")
+# Audio-Modus
 controller.set_audio_dsp_controls(audiomode="AUDIO_MODE_NIGHT")
-controller.set_audio_dsp_controls(audiomode="AUDIO_MODE_DIRECT")
 
-# Mit Delay (Heimkino Sync)
-controller.set_audio_dsp_controls(
-    audiomode="AUDIO_MODE_NORMAL",
-    videosyncaudiodelay=100
-)
+# Level Controls
+controller.set_level_controls(front=7, rear=5)
 ```
 
-### 🎼 Lautsprecher-Level
+#### Multi-Room Zones
 
 ```python
-# Front & Rear Speaker Levels auslesen
-levels = controller.get_level_controls()
-if levels:
-    front_level = levels['frontCenterSpeakerLevel']
-    rear_level = levels['rearSurroundSpeakersLevel']
-    print(f"Front: {front_level['value']}")
-    print(f"Rear: {rear_level['value']}")
-
-# Levels anpassen
-if controller.set_level_controls(front=5, rear=3):
-    print("Lautsprecher-Level gesetzt")
-
-# Nur Front anpassen
-controller.set_level_controls(front=7, rear=3)
-```
-
-### 🎵 Presets
-
-```python
-# Presets auflisten
-presets = controller.get_presets()
-if presets:
-    for preset in presets['presets']:
-        print(f"Preset {preset['id']}: {preset['itemName']}")
-        print(f"  Source: {preset['source']}")
-        print(f"  Account: {preset['sourceAccount']}")
-```
-
-### 🏠 Multi-Room Zones
-
-```python
-# Zone auslesen
-zone = controller.get_zone()
-if zone:
-    print(f"Master: {zone['master']}")
-    print(f"Mitglieder:")
-    for member in zone['members']:
-        role = "Master" if member['is_master'] else "Slave"
-        print(f"  {member['macaddress']} ({role})")
-
-# Multi-Room Zone erstellen (alle Geräte synchronisieren)
+# Zone erstellen
 master_mac = "A81B6A632A40"
 members = [
     {"ip": "192.168.50.156", "mac": "A81B6A632A40"},  # Master
@@ -575,47 +249,85 @@ members = [
     {"ip": "192.168.50.158", "mac": "A81B6A632A42"},  # Slave 2
 ]
 
-if controller.set_zone(master_mac, members):
-    print("Zone erstellt!")
+controller.set_zone(master_mac, members)
 
 # Slave hinzufügen
-slave_ip = "192.168.50.159"
-slave_mac = "A81B6A632A43"
-
-if controller.add_zone_slave(master_mac, slave_ip, slave_mac):
-    print(f"Slave {slave_ip} hinzugefügt")
+controller.add_zone_slave(master_mac, "192.168.50.159", "A81B6A632A43")
 
 # Slave entfernen
-if controller.remove_zone_slave(master_mac, slave_mac):
-    print(f"Slave {slave_mac} entfernt")
+controller.remove_zone_slave(master_mac, "A81B6A632A43")
 ```
 
-### 📋 Status & Info
+#### DLNA Media Streaming
 
 ```python
-# Aktuelle Musik-Info
-playing = controller.get_nowplaying()
-if playing:
-    print(f"🎵 {playing['artist']} - {playing['track']}")
-    print(f"   Album: {playing['album']}")
-    print(f"   Source: {playing['source']}")
-    if playing.get('artwork'):
-        print(f"   Cover: {playing['artwork']}")
+from soundtouch_media import SoundTouchMedia
+from dlna_helper import DLNAHelper
 
-# Gerät-Fähigkeiten auslesen
-capabilities = controller.get_capabilities()
-if capabilities:
-    for cap in capabilities:
-        print(f"{cap['name']}: {cap['url']}")
+# DLNA-Server starten
+dlna = DLNAHelper()
+dlna.start_server()
 
-# Gerätename ändern
-if controller.set_device_name("Küche"):
-    print("Gerätename aktualisiert")
+# Media Player initialisieren
+media_player = SoundTouchMedia(controller_ip="192.168.50.156")
+
+# Musik abspielen
+media_player.play_file("/path/to/music.mp3")
+
+# Stream-Status
+status = media_player.get_stream_status()
+print(f"Playing: {status['title']} - {status['artist']}")
+print(f"Duration: {status['duration']}")
+```
+
+### REST API
+
+#### Server starten
+
+```bash
+python soundtouch_api.py
+# Server läuft auf http://localhost:8000
+```
+
+#### Endpoints (Auswahl)
+
+```bash
+# Discovery
+GET  /api/discover                    # Geräte finden
+GET  /api/devices/{ip}/info           # Geräte-Info
+
+# Playback
+POST /api/devices/{ip}/play           # Play
+POST /api/devices/{ip}/pause          # Pause
+POST /api/devices/{ip}/key/{key}      # Taste drücken
+GET  /api/devices/{ip}/nowplaying     # Aktueller Status
+
+# Volume
+GET  /api/devices/{ip}/volume         # Lautstärke abrufen
+POST /api/devices/{ip}/volume         # Lautstärke setzen
+
+# Audio
+GET  /api/devices/{ip}/bass           # Bass abrufen
+POST /api/devices/{ip}/bass           # Bass setzen
+POST /api/devices/{ip}/tone           # Bass & Treble setzen
+POST /api/devices/{ip}/audio-mode     # Audio-Modus wechseln
+
+# Sources
+GET  /api/devices/{ip}/sources        # Verfügbare Quellen
+POST /api/devices/{ip}/source         # Source wechseln
+
+# Zones
+GET  /api/devices/{ip}/zone           # Zone abrufen
+POST /api/devices/{ip}/zone           # Zone erstellen
+POST /api/devices/{ip}/zone/add       # Slave hinzufügen
+POST /api/devices/{ip}/zone/remove    # Slave entfernen
+
+# Vollständige API-Dokumentation: http://localhost:8000/docs
 ```
 
 ---
 
-## 🎯 Praktische Szenarien
+## 🎯 Anwendungsbeispiele
 
 ### Morgen-Routine
 
@@ -623,216 +335,158 @@ if controller.set_device_name("Küche"):
 import time
 from soundtouch_lib import SoundTouchController
 
-def morning_routine(ip):
+def morning_routine(ip, target_volume=20):
     """Sanftes Aufwachen mit Musik"""
-    ctl = SoundTouchController(ip)
+    controller = SoundTouchController(ip)
     
-    # Langsam lauter werden lassen
-    ctl.set_volume(10)
-    time.sleep(1)
-    ctl.set_volume(15)
-    time.sleep(1)
-    ctl.set_volume(20)
+    # Langsam lauter werden
+    for vol in range(10, target_volume + 1, 5):
+        controller.set_volume(vol)
+        time.sleep(1)
     
-    # Radio einschalten
-    ctl.select_source("TUNEIN")
-    ctl.send_key("play")
-    
-    # Audio-Modus
-    ctl.set_audio_dsp_controls(audiomode="AUDIO_MODE_NORMAL")
+    # Radio starten
+    controller.select_source("TUNEIN")
+    controller.send_key("play")
 
 morning_routine("192.168.50.156")
 ```
 
-### Party-Modus
+### Party-Modus (Multi-Room)
 
 ```python
-import time
-from soundtouch_lib import SoundTouchController
-
 def party_mode(device_ips, volume=70):
-    """Alle Geräte synchronisieren für Party"""
+    """Alle Geräte synchronisieren"""
     if not device_ips:
         return
     
-    master_ip = device_ips[0]
-    master_ctl = SoundTouchController(master_ip)
+    master_controller = SoundTouchController(device_ips[0])
+    master_controller.set_volume(volume)
+    master_controller.select_source("SPOTIFY")
+    master_controller.send_key("play")
     
-    # Master vorbereiten
-    master_ctl.set_volume(volume)
-    master_ctl.select_source("SPOTIFY")
-    
-    # Alle anderen Geräte folgen Master
+    # Slaves folgen Master
     for ip in device_ips[1:]:
-        ctl = SoundTouchController(ip)
-        ctl.set_volume(volume)
-        ctl.select_source("SPOTIFY")
-    
-    # Starte Musik auf Master
-    master_ctl.send_key("play")
-    
-    # Kleine Verzögerung
-    time.sleep(2)
-    
-    # Starte auf allen Slaves
-    for ip in device_ips[1:]:
-        ctl = SoundTouchController(ip)
-        ctl.send_key("play")
+        controller = SoundTouchController(ip)
+        controller.set_volume(volume)
+        controller.select_source("SPOTIFY")
+        time.sleep(0.5)
+        controller.send_key("play")
 
-party_mode([
-    "192.168.50.156",
-    "192.168.50.157",
-    "192.168.50.158"
-], volume=75)
+party_mode(["192.168.50.156", "192.168.50.157", "192.168.50.158"])
 ```
 
 ### Nacht-Routine
 
 ```python
-import time
-from soundtouch_lib import SoundTouchController
+def night_routine(ip, duration_minutes=30):
+    """Entspanntes Einschlafen mit Timer"""
+    controller = SoundTouchController(ip)
+    
+    # Nacht-Modus aktivieren
+    controller.set_audio_dsp_controls(audiomode="AUDIO_MODE_NIGHT")
+    controller.set_volume(15)
+    controller.set_bass(-3)
+    
+    # Entspannende Musik starten
+    controller.select_source("TUNEIN")
+    controller.send_key("play")
+    
+    # Nach X Minuten ausschalten
+    time.sleep(duration_minutes * 60)
+    controller.send_key("stop")
 
-def night_routine(ip):
-    """Entspanntes Einschlafen"""
-    ctl = SoundTouchController(ip)
-    
-    # Nacht-Audio-Modus
-    ctl.set_audio_dsp_controls(audiomode="AUDIO_MODE_NIGHT")
-    
-    # Leise Musik
-    ctl.set_volume(15)
-    
-    # Entspannende Quelle (zB. Natur-Sounds via TuneIn)
-    ctl.select_source("TUNEIN")
-    
-    # Bass reduzieren
-    ctl.set_bass(-3)
-    
-    # Musik nach 30 Minuten ausschalten
-    time.sleep(1800)
-    ctl.send_key("stop")
-
-night_routine("192.168.50.156")
+night_routine("192.168.50.156", duration_minutes=30)
 ```
 
 ---
 
-## Fehlerbehandlung
+## 🛠️ Systemanforderungen
 
-```python
-from soundtouch_lib import SoundTouchController
-
-controller = SoundTouchController("192.168.50.156")
-
-# Alle Get-Methoden geben Optional[dict] zurück
-volume = controller.get_volume()
-if volume is None:
-    print("❌ Fehler: Kann Lautstärke nicht auslesen")
-    print("   - Gerät offline?")
-    print("   - Falscher Port?")
-else:
-    print(f"✅ Lautstärke: {volume['actualvolume']}")
-
-# Alle Set-Methoden geben bool zurück
-success = controller.set_volume(50)
-if not success:
-    print("❌ Fehler: Kann Lautstärke nicht setzen")
-else:
-    print("✅ Lautstärke erfolgreich gesetzt")
-
-# Try/Except für Netzwerk-Fehler
-try:
-    controller = SoundTouchController("192.168.50.156", port=8090)
-    result = controller.get_volume()
-except ConnectionError:
-    print("❌ Keine Verbindung zum Gerät")
-except Exception as e:
-    print(f"❌ Fehler: {e}")
-```
-
----
-
-## Konfiguration & Netzwerk
-
-```python
-from soundtouch_lib import SoundTouchDiscovery, SoundTouchController
-
-# Benutzerdefiniertes Netzwerk
-scanner = SoundTouchDiscovery(network="192.168.100.0/24")
-devices = scanner.scan()
-
-# Schnelleres Scanning mit mehr Threads
-devices = scanner.scan(max_threads=200)
-
-# Benutzerdefinierter Port
-controller = SoundTouchController(
-    ip="192.168.50.156",
-    port=8090  # Standard ist 8090
-)
-
-# Mit Timeout
-import socket
-socket.setdefaulttimeout(3)  # 3 Sekunden
-```
-
----
-
-## Anforderungen
+### Python-Pakete
 
 ```
 Python 3.7+
 requests>=2.28.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
+PyQt5>=5.15.0          # Für GUI
+websocket-client       # Für WebSocket-Updates
+sqlite3                # Für DLNA-DB (meist vorinstalliert)
 ```
 
-**Installation:**
+### Optional: DLNA-Streaming
+
+**Linux:**
 ```bash
-pip install -r requirements.txt
+sudo apt-get install minidlna
+```
+
+**Konfiguration:**
+```bash
+# minidlna-Konfiguration anpassen
+cp minidlna/minidlna.conf /etc/minidlna.conf
+
+# Musik-Verzeichnis hinzufügen
+media_dir=/path/to/your/music
+
+# Server starten
+sudo service minidlna restart
 ```
 
 ---
 
-## Implementierte API-Endpoints
+## 📚 API-Referenz
 
-Das Projekt implementiert alle 30+ Methoden der offiziellen Bose SoundTouch Web API v1.0:
+### Implementierte Bose SoundTouch API v1.0 Endpoints
 
-✅ **Basis-Kontrolle** (3 Methoden)
-- send_key() | get_nowplaying() | get_available_keys()
+#### ✅ Basis-Kontrolle (3 Methoden)
+- `send_key()` - Virtuelle Tasteneingaben
+- `get_nowplaying()` - Aktueller Wiedergabe-Status
+- `get_available_keys()` - Verfügbare Tasten
 
-✅ **Lautstärke** (2 Methoden)
-- get_volume() | set_volume()
+#### ✅ Lautstärke (2 Methoden)
+- `get_volume()` - Lautstärke abrufen
+- `set_volume()` - Lautstärke setzen (0-100)
 
-✅ **Bass** (3 Methoden)
-- get_bass_capabilities() | get_bass() | set_bass()
+#### ✅ Bass (3 Methoden)
+- `get_bass_capabilities()` - Bass-Fähigkeiten prüfen
+- `get_bass()` - Bass-Wert abrufen
+- `set_bass()` - Bass setzen (-9 bis +9)
 
-✅ **Sources** (2 Methoden)
-- get_sources() | select_source()
+#### ✅ Sources (2 Methoden)
+- `get_sources()` - Verfügbare Quellen auflisten
+- `select_source()` - Quelle wechseln
 
-✅ **Presets** (1 Methode)
-- get_presets()
+#### ✅ Presets (1 Methode)
+- `get_presets()` - Favoriten abrufen
 
-✅ **System** (1 Methode)
-- get_capabilities()
+#### ✅ System (2 Methoden)
+- `get_capabilities()` - Geräte-Fähigkeiten
+- `set_device_name()` - Gerätename ändern
 
-✅ **Audio DSP** (2 Methoden)
-- get_audio_dsp_controls() | set_audio_dsp_controls()
+#### ✅ Audio DSP (2 Methoden)
+- `get_audio_dsp_controls()` - Audio-Modi abrufen
+- `set_audio_dsp_controls()` - Audio-Modus setzen
 
-✅ **Tone Controls** (2 Methoden)
-- get_tone_controls() | set_tone_controls()
+#### ✅ Tone Controls (2 Methoden)
+- `get_tone_controls()` - Bass & Treble abrufen
+- `set_tone_controls()` - Bass & Treble setzen
 
-✅ **Level Controls** (2 Methoden)
-- get_level_controls() | set_level_controls()
+#### ✅ Level Controls (2 Methoden)
+- `get_level_controls()` - Lautsprecher-Level abrufen
+- `set_level_controls()` - Lautsprecher-Level setzen
 
-✅ **Zones** (4 Methoden)
-- get_zone() | set_zone() | add_zone_slave() | remove_zone_slave()
+#### ✅ Zones (4 Methoden)
+- `get_zone()` - Zone-Konfiguration abrufen
+- `set_zone()` - Zone erstellen
+- `add_zone_slave()` - Slave hinzufügen
+- `remove_zone_slave()` - Slave entfernen
 
-✅ **Device** (1 Methode)
-- set_device_name()
+**Gesamt: 30+ Methoden implementiert**
 
 ---
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Gerät nicht erreichbar?
 
@@ -856,29 +510,111 @@ except ConnectionRefusedError:
     print("❌ Port 8090 blockiert")
 ```
 
-### Scanning langsam?
+### Scanning zu langsam?
 
 ```python
-# Threadzahl erhöhen
+# Mehr Threads verwenden
 scanner = SoundTouchDiscovery()
 devices = scanner.scan(max_threads=200)
 
-# Oder Netzwerk verkleinern
+# Oder Netzwerk einschränken
 scanner = SoundTouchDiscovery(network="192.168.50.0/25")
 devices = scanner.scan()
 ```
 
+### DLNA-Streaming funktioniert nicht?
+
+```bash
+# minidlna-Status prüfen
+sudo service minidlna status
+
+# Datenbank neu aufbauen
+sudo service minidlna force-reload
+
+# Logs prüfen
+tail -f /var/log/minidlna.log
+```
+
 ### XML Parse Fehler?
 
-- Gerät neustarten (Netzwerk-Fehler)
+- Gerät neustarten (Firmware-Bug)
 - Port 8090 prüfen
-- Netzwerk-Konnektivität prüfen
-- In neuerer API-Version hat sich möglicherweise das XML-Format geändert
+- Netzwerk-Konnektivität testen
+- Eventuell hat sich in neuerer Firmware das XML-Format geändert
 
 ---
 
-## Lizenz & Credits
+## 📂 Projektstruktur
 
-API-Dokumentation: Bose SoundTouch Web API v1.0 (Januar 7, 2026)
+```
+Open-Soundtouch/
+├── soundtouch_lib.py              # Core API-Library
+├── soundtouch_websocket.py        # WebSocket-Client
+├── soundtouch_media.py            # Media Player
+├── soundtouch_discovery.py        # CLI Discovery Tool
+├── soundtouch_controller.py       # CLI Control Tool
+├── soundtouch_api.py              # REST API Server
+├── dlna_helper.py                 # DLNA Integration
+├── gui_linux_windows.py           # Desktop GUI
+├── gui_android.py                 # Android GUI
+├── gui_media_player.py            # Media Player GUI
+├── gui_group_manager.py           # Multi-Room GUI
+├── gui_device_setup.py            # Device Setup GUI
+├── soundtouch_devices.json        # Persistente Geräteliste
+├── requirements.txt               # Python-Abhängigkeiten
+├── install_all.sh                 # Installations-Script
+├── start_gui.sh                   # GUI-Starter
+├── buildozer.spec                 # Android Build Config
+├── docs/                          # Dokumentation
+│   ├── BOSE SOUNDTOUCH WEB API.md
+│   └── DLNA_SSDP_Summary.md
+├── tests/                         # Test-Scripts
+│   ├── test_dlna_playback.py
+│   ├── test_websocket_direct.py
+│   └── ...
+└── test_music/                    # Test-Musik und DLNA-Config
+    └── minidlna_opensoundtouch/
+        ├── minidlna_opensoundtouch.conf
+        └── minidlna_db/           # DLNA-Datenbank
+```
 
-**Hinweis:** Dieses Projekt wird inoffiziell entwickelt und ist nicht mit Bose Corporation verbunden.
+---
+
+## 🤝 Mitwirken
+
+Dieses Projekt ist Work in Progress und freut sich über Beiträge!
+
+**Wie kann ich helfen?**
+- 🐛 Bugs melden via GitHub Issues
+- 💡 Feature-Vorschläge einreichen
+- 🔧 Pull Requests erstellen
+- 📖 Dokumentation verbessern
+- ✅ Tests hinzufügen
+
+**Development Setup:**
+```bash
+git clone https://github.com/Hrzwahusa/Open-Soundtouch.git
+cd Open-Soundtouch
+pip install -r requirements.txt
+# Happy Coding! 🚀
+```
+
+---
+
+## 📄 Lizenz & Credits
+
+**API-Dokumentation:** Bose SoundTouch Web API v1.0
+
+**Hinweis:** Dieses Projekt wird inoffiziell entwickelt und ist nicht mit der Bose Corporation verbunden oder von ihr unterstützt.
+
+---
+
+## 🔗 Links
+
+- **GitHub Repository**: https://github.com/Hrzwahusa/Open-Soundtouch
+- **Bose SoundTouch API Docs**: [docs/BOSE SOUNDTOUCH WEB API.md](docs/BOSE%20SOUNDTOUCH%20WEB%20API.md)
+- **DLNA/SSDP Summary**: [docs/DLNA_SSDP_Summary.md](docs/DLNA_SSDP_Summary.md)
+
+---
+
+**Made with ❤️ for the SoundTouch Community**
