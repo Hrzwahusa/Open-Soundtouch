@@ -260,7 +260,7 @@ class SimpleSoundTouchGUI(QMainWindow):
 
             # Gruppen-Regler: verschiebt ALLE relativ (behält die Balance untereinander)
             grow = QHBoxLayout()
-            glbl = QLabel("🔊 Gruppe (alle)")
+            glbl = QLabel("🔊 Group (all)")
             glbl.setMinimumWidth(170)
             glbl.setStyleSheet("font-weight: 700;")
             grow.addWidget(glbl)
@@ -285,7 +285,7 @@ class SimpleSoundTouchGUI(QMainWindow):
             self._add_volume_row(self.device.ip, single=True)
             return
 
-        hint = QLabel("Kein Gerät ausgewählt.")
+        hint = QLabel("No device selected.")
         hint.setStyleSheet("color: #8A909C; font-style: italic;")
         self.volume_container.addWidget(hint)
 
@@ -329,7 +329,7 @@ class SimpleSoundTouchGUI(QMainWindow):
             if not vd:
                 if level_label:
                     level_label.setText("--")
-                self.signals.status_update.emit(f"⚠️ {ip} nicht erreichbar (Standby?)")
+                self.signals.status_update.emit(f"⚠️ {ip} not reachable (standby?)")
                 return
             current = vd.get('actualvolume', 0)
             new = max(0, min(100, current + delta))
@@ -338,9 +338,9 @@ class SimpleSoundTouchGUI(QMainWindow):
                     level_label.setText(str(new))
                 self.signals.status_update.emit(f"🔊 {ip} → {new}")
             else:
-                self.signals.status_update.emit(f"⚠️ Lautstärke ({ip}) fehlgeschlagen")
+                self.signals.status_update.emit(f"⚠️ Volume ({ip}) failed")
         except Exception as e:
-            self.signals.status_update.emit(f"⚠️ Lautstärke ({ip}): {e}")
+            self.signals.status_update.emit(f"⚠️ Volume ({ip}): {e}")
 
     def _set_group_volume(self, delta):
         """Ändert die Lautstärke ALLER Lautsprecher der Gruppe relativ (behält die Balance)."""
@@ -350,7 +350,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         ips = [ip for ip in ([master_ip] + list(self.active_group.get('slave_ips', []))) if ip]
         for ip in ips:
             self._set_member_volume(ip, delta, self._volume_labels.get(ip))
-        self.signals.status_update.emit(f"🔊 Gruppe {'+' if delta >= 0 else ''}{delta}")
+        self.signals.status_update.emit(f"🔊 Group {'+' if delta >= 0 else ''}{delta}")
 
     def _setup_ui(self):
         """Create the UI with tabs."""
@@ -395,7 +395,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         # damit bei wenig Fensterhöhe nichts gestaucht/abgeschnitten wird.
         tabs.addTab(self._scrollable(self._create_control_tab()), "🎵 Control")
         tabs.addTab(self._scrollable(self._create_presets_tab()), "⭐ Presets")
-        tabs.addTab(self._scrollable(self._create_favorites_tab()), "❤️ Favoriten")
+        tabs.addTab(self._scrollable(self._create_favorites_tab()), "❤️ Favorites")
         tabs.addTab(self._scrollable(self._create_tunein_tab()), "📻 TuneIn")
         tabs.addTab(self._scrollable(self._create_groups_tab()), "🏠 Groups")
         tabs.addTab(self._scrollable(self._create_settings_tab()), "⚙️ Settings")
@@ -423,7 +423,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         layout = QVBoxLayout(tab)
 
         # Playback / Transport controls
-        playback_group = QGroupBox("⏯️ Wiedergabe")
+        playback_group = QGroupBox("⏯️ Playback")
         playback_layout = QHBoxLayout()
         self.transport_buttons = []
         for label, key in [("⏮️", "PREV_TRACK"), ("▶️ / ⏸️", "PLAY_PAUSE"),
@@ -573,7 +573,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        fav_group = QGroupBox("❤️ Radio-Favoriten")
+        fav_group = QGroupBox("❤️ Radio favorites")
         fav_layout = QVBoxLayout()
 
         self.favorites_list = QListWidget()
@@ -582,13 +582,13 @@ class SimpleSoundTouchGUI(QMainWindow):
         fav_layout.addWidget(self.favorites_list)
 
         actions = QHBoxLayout()
-        btn_play = QPushButton("▶️ Abspielen")
+        btn_play = QPushButton("▶️ Play")
         btn_play.clicked.connect(self._play_selected_favorite)
         actions.addWidget(btn_play)
         btn_preset = QPushButton("💾 Auf Preset legen…")
         btn_preset.clicked.connect(self._save_favorite_to_preset)
         actions.addWidget(btn_preset)
-        btn_remove = QPushButton("🗑️ Entfernen")
+        btn_remove = QPushButton("🗑️ Remove")
         btn_remove.setProperty("danger", True)
         btn_remove.clicked.connect(self._remove_favorite)
         actions.addWidget(btn_remove)
@@ -597,7 +597,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         fav_group.setLayout(fav_layout)
         layout.addWidget(fav_group)
 
-        add_group = QGroupBox("➕ Favorit hinzufügen")
+        add_group = QGroupBox("➕ Add favorite")
         add_layout = QVBoxLayout()
         add_layout.addWidget(QLabel("Name und direkte Stream-URL (http):"))
         row = QHBoxLayout()
@@ -607,12 +607,12 @@ class SimpleSoundTouchGUI(QMainWindow):
         self.fav_url_input.setPlaceholderText("http://stream.…/stream.mp3")
         row.addWidget(self.fav_name_input)
         row.addWidget(self.fav_url_input, 2)
-        btn_add = QPushButton("➕ Hinzufügen")
+        btn_add = QPushButton("➕ Add")
         btn_add.clicked.connect(self._add_favorite_manual)
         row.addWidget(btn_add)
         add_layout.addLayout(row)
 
-        btn_add_current = QPushButton("➕ Gerade gespielten Sender hinzufügen")
+        btn_add_current = QPushButton("➕ Add currently playing station")
         btn_add_current.clicked.connect(self._add_current_to_favorites)
         add_layout.addWidget(btn_add_current)
 
@@ -649,7 +649,7 @@ class SimpleSoundTouchGUI(QMainWindow):
             return
         self.favorites_list.clear()
         if not self.favorites:
-            item = QListWidgetItem("Noch keine Favoriten – unten hinzufügen oder aus der TuneIn-Suche.")
+            item = QListWidgetItem("No favorites yet – add one below or from the TuneIn search.")
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.favorites_list.addItem(item)
             return
@@ -678,19 +678,19 @@ class SimpleSoundTouchGUI(QMainWindow):
         if not name:
             name = url
         if any((f.get('url') == url) for f in self.favorites):
-            self.signals.status_update.emit(f"ℹ️ '{name}' ist schon in den Favoriten")
+            self.signals.status_update.emit(f"ℹ️ '{name}' is already in favorites")
             return False
         self.favorites.append({'name': name, 'url': url})
         self._save_favorites()
         self._refresh_favorites()
-        self.signals.status_update.emit(f"❤️ '{name}' zu Favoriten hinzugefügt")
+        self.signals.status_update.emit(f"❤️ '{name}' added to favorites")
         return True
 
     def _add_favorite_manual(self):
         name = self.fav_name_input.text()
         url = self.fav_url_input.text().strip()
         if not url.startswith(('http://', 'https://')):
-            QMessageBox.warning(self, "Ungültige URL", "Bitte eine direkte Stream-URL (http://…) angeben.")
+            QMessageBox.warning(self, "Invalid URL", "Bitte eine direkte Stream-URL (http://…) angeben.")
             return
         if self.add_favorite(name, url):
             self.fav_name_input.clear()
@@ -698,7 +698,7 @@ class SimpleSoundTouchGUI(QMainWindow):
 
     def _add_current_to_favorites(self):
         if not self.device:
-            QMessageBox.warning(self, "Kein Gerät", "Bitte zuerst einen Lautsprecher auswählen.")
+            QMessageBox.warning(self, "No device", "Please select a speaker first.")
             return
         try:
             np = self.device.get_now_playing() or {}
@@ -707,33 +707,33 @@ class SimpleSoundTouchGUI(QMainWindow):
         url = (np.get('location') or '').strip()
         name = (np.get('track') or np.get('stationName') or 'Radio').strip()
         if not url.startswith('http'):
-            QMessageBox.information(self, "Nichts zum Speichern",
-                                    "Es läuft gerade kein Internet-Radio-Stream (keine http-URL).")
+            QMessageBox.information(self, "Nothing to save",
+                                    "No internet radio stream is currently playing (no http URL).")
             return
         self.add_favorite(name, url)
 
     def _play_selected_favorite(self):
         if not self.device:
-            QMessageBox.warning(self, "Kein Gerät", "Bitte zuerst einen Lautsprecher auswählen.")
+            QMessageBox.warning(self, "No device", "Please select a speaker first.")
             return
         idx, fav = self._selected_favorite()
         if fav is None:
-            QMessageBox.warning(self, "Keine Auswahl", "Bitte einen Favoriten auswählen.")
+            QMessageBox.warning(self, "No selection", "Please select a favorite.")
             return
         try:
             ok = self.device.play_url_dlna(fav['url'], track=fav.get('name', 'Radio'),
                                            artist="Internet Radio", album="Favorit")
             if ok:
-                self.signals.status_update.emit(f"📻 Spiele Favorit: {fav.get('name')}")
+                self.signals.status_update.emit(f"📻 Playing favorite: {fav.get('name')}")
             else:
-                QMessageBox.warning(self, "Fehler", "Wiedergabe fehlgeschlagen.")
+                QMessageBox.warning(self, "Error", "Playback failed.")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Wiedergabe fehlgeschlagen: {e}")
+            QMessageBox.warning(self, "Error", f"Playback failed: {e}")
 
     def _remove_favorite(self):
         idx, fav = self._selected_favorite()
         if fav is None:
-            QMessageBox.warning(self, "Keine Auswahl", "Bitte einen Favoriten auswählen.")
+            QMessageBox.warning(self, "No selection", "Please select a favorite.")
             return
         self.favorites.pop(idx)
         self._save_favorites()
@@ -742,11 +742,11 @@ class SimpleSoundTouchGUI(QMainWindow):
 
     def _save_favorite_to_preset(self):
         if not self.device:
-            QMessageBox.warning(self, "Kein Gerät", "Bitte zuerst einen Lautsprecher auswählen.")
+            QMessageBox.warning(self, "No device", "Please select a speaker first.")
             return
         idx, fav = self._selected_favorite()
         if fav is None:
-            QMessageBox.warning(self, "Keine Auswahl", "Bitte einen Favoriten auswählen.")
+            QMessageBox.warning(self, "No selection", "Please select a favorite.")
             return
         preset_id, ok = QInputDialog.getInt(
             self, "Auf Preset legen",
@@ -766,11 +766,11 @@ class SimpleSoundTouchGUI(QMainWindow):
             pass
         device_ok = self._write_device_preset(preset_id, fav['url'], fav.get('name', 'Radio'))
         if native_ok or device_ok:
-            QMessageBox.information(self, "Erfolg",
+            QMessageBox.information(self, "Success",
                                     f"'{fav.get('name')}' auf Preset {preset_id} gelegt.\n"
-                                    f"Drücke die Preset-Taste {preset_id} an der Box.")
+                                    f"Press preset button {preset_id} on the speaker.")
         else:
-            QMessageBox.warning(self, "Fehler", f"Preset {preset_id} konnte nicht gespeichert werden.")
+            QMessageBox.warning(self, "Error", f"Preset {preset_id} could not be saved.")
 
     def _create_tunein_tab(self) -> QWidget:
         """Create the TuneIn search and browse tab."""
@@ -817,7 +817,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         self.btn_save_search_result.setEnabled(False)
         search_actions.addWidget(self.btn_save_search_result)
 
-        self.btn_fav_search_result = QPushButton("❤️ Zu Favoriten")
+        self.btn_fav_search_result = QPushButton("❤️ To favorites")
         self.btn_fav_search_result.clicked.connect(self._save_search_to_favorites)
         self.btn_fav_search_result.setEnabled(False)
         search_actions.addWidget(self.btn_fav_search_result)
@@ -913,14 +913,14 @@ class SimpleSoundTouchGUI(QMainWindow):
             layout.addWidget(btn_setup)
 
         # Gerät umbenennen (nur einzelner Lautsprecher, nicht bei aktiver Gruppe)
-        rename_group = QGroupBox("✏️ Lautsprecher umbenennen")
+        rename_group = QGroupBox("✏️ Rename speaker")
         rename_layout = QVBoxLayout()
-        hint = QLabel("Benennt den aktuell im Dropdown ausgewählten Lautsprecher um. "
-                      "Bei einer aktiven Gruppe nicht verfügbar.")
+        hint = QLabel("Renames the speaker currently selected in the dropdown. "
+                      "Not available while a group is active.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #8A909C;")
         rename_layout.addWidget(hint)
-        self.btn_rename_device = QPushButton("✏️ Ausgewählten Lautsprecher umbenennen…")
+        self.btn_rename_device = QPushButton("✏️ Rename selected speaker…")
         self.btn_rename_device.clicked.connect(self._rename_device)
         self.btn_rename_device.setEnabled(False)
         rename_layout.addWidget(self.btn_rename_device)
@@ -934,13 +934,13 @@ class SimpleSoundTouchGUI(QMainWindow):
         """Benennt den aktuell ausgewählten einzelnen Lautsprecher um."""
         if self.active_group:
             QMessageBox.information(
-                self, "Gruppe aktiv",
-                "Bei einer aktiven Gruppe kann nicht umbenannt werden.\n"
-                "Wähle zuerst einen einzelnen Lautsprecher im Dropdown aus."
+                self, "Group active",
+                "Renaming is not possible while a group is active.\n"
+                "Select a single speaker in the dropdown first."
             )
             return
         if not self.device:
-            QMessageBox.warning(self, "Kein Gerät", "Bitte zuerst einen Lautsprecher auswählen.")
+            QMessageBox.warning(self, "No device", "Please select a speaker first.")
             return
 
         current = ""
@@ -951,13 +951,13 @@ class SimpleSoundTouchGUI(QMainWindow):
             pass
 
         new_name, ok = QInputDialog.getText(
-            self, "Lautsprecher umbenennen", "Neuer Name:", text=current
+            self, "Rename speaker", "Neuer Name:", text=current
         )
         if not ok:
             return
         new_name = new_name.strip()
         if not new_name:
-            QMessageBox.warning(self, "Ungültig", "Der Name darf nicht leer sein.")
+            QMessageBox.warning(self, "Invalid", "Der Name darf nicht leer sein.")
             return
 
         try:
@@ -966,9 +966,9 @@ class SimpleSoundTouchGUI(QMainWindow):
                 # Discovery neu, damit Dropdown & all_devices den neuen Namen zeigen
                 QTimer.singleShot(800, self._discover_devices)
             else:
-                QMessageBox.warning(self, "Fehler", "Umbenennen fehlgeschlagen.")
+                QMessageBox.warning(self, "Error", "Umbenennen fehlgeschlagen.")
         except Exception as e:
-            QMessageBox.warning(self, "Fehler", f"Umbenennen fehlgeschlagen: {e}")
+            QMessageBox.warning(self, "Error", f"Umbenennen fehlgeschlagen: {e}")
     
     def _check_audio_capture(self):
         """Check if system audio capture is available."""
@@ -1310,8 +1310,8 @@ class SimpleSoundTouchGUI(QMainWindow):
             pass
 
         if not entries:
-            self.presets_list.addItem("Keine Presets konfiguriert")
-            self.signals.status_update.emit("ℹ️ Keine Presets gefunden")
+            self.presets_list.addItem("No presets configured")
+            self.signals.status_update.emit("ℹ️ No presets found")
             return
 
         for n in sorted(entries):
@@ -1365,17 +1365,17 @@ class SimpleSoundTouchGUI(QMainWindow):
         try:
             if not device_ssh.is_reachable(ip):
                 self.signals.status_update.emit(
-                    "⚠️ Gerät per SSH nicht erreichbar – Preset nur nativ gespeichert"
+                    "⚠️ Device not reachable via SSH – preset saved natively only"
                 )
                 return False
             ok = device_ssh.set_preset(ip, preset_id, url, name)
             if ok:
-                self.signals.status_update.emit(f"✅ Preset {preset_id} auf Gerät konfiguriert: {name}")
+                self.signals.status_update.emit(f"✅ Preset {preset_id} configured on device: {name}")
             else:
-                self.signals.status_update.emit(f"⚠️ Konnte Preset {preset_id} nicht auf Gerät schreiben")
+                self.signals.status_update.emit(f"⚠️ Could not write preset {preset_id} to device")
             return ok
         except Exception as e:
-            self.signals.status_update.emit(f"⚠️ SSH-Fehler beim Preset-Schreiben: {e}")
+            self.signals.status_update.emit(f"⚠️ SSH error while writing preset: {e}")
             return False
 
     def _store_current_to_preset(self, preset_id: int):
@@ -1505,8 +1505,8 @@ class SimpleSoundTouchGUI(QMainWindow):
                 if native_ok or device_ok:
                     self.signals.status_update.emit(f"💾 {station_name} → Preset {preset_id}")
                     QMessageBox.information(self, "Success",
-                                          f"'{station_name}' auf Preset {preset_id} gespeichert!\n\n"
-                                          f"Drücke die Preset-Taste {preset_id} an der Box.")
+                                          f"'{station_name}' saved to preset {preset_id}!\n\n"
+                                          f"Press preset button {preset_id} on the speaker.")
                 else:
                     QMessageBox.warning(self, "Error", "Failed to store preset")
             except Exception as e:
@@ -1666,11 +1666,11 @@ class SimpleSoundTouchGUI(QMainWindow):
                 self.signals.status_update.emit(f"💾 {station['name']} → Preset {preset_id}")
                 QMessageBox.information(
                     self, "Success",
-                    f"✓ '{station['name']}' auf Preset {preset_id} gespeichert!\n\n"
-                    f"Drücke die Preset-Taste {preset_id} an der Box – spielt ohne PC/Cloud."
+                    f"✓ '{station['name']}' saved to preset {preset_id}!\n\n"
+                    f"Press preset button {preset_id} on the speaker – plays without PC/cloud."
                 )
             else:
-                QMessageBox.warning(self, "Error", f"Preset {preset_id} konnte nicht gespeichert werden")
+                QMessageBox.warning(self, "Error", f"Preset {preset_id} could not be saved")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save preset: {e}")
 
@@ -1689,7 +1689,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         except Exception:
             resolved = station.get('location', '')
         if not resolved or not resolved.startswith('http'):
-            QMessageBox.warning(self, "Fehler", "Konnte keine abspielbare Stream-URL ermitteln.")
+            QMessageBox.warning(self, "Error", "Konnte keine abspielbare Stream-URL ermitteln.")
             return
         self.add_favorite(station['name'], resolved)
 
