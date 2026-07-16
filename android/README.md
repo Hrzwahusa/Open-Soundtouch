@@ -2,7 +2,7 @@
 
 Native Android app (Kotlin + Jetpack Compose) for controlling Bose SoundTouch speakers without the Bose cloud. Companion to the desktop app; aims for **feature parity** with it.
 
-> 🚧 **Phase 1 – foundation.** This builds and gives you: device discovery, control (transport, power, volume) and playing a radio stream URL via DLNA. The remaining features arrive in phases (see below). Not yet on the Play Store; build it yourself in Android Studio.
+Join the closed Beta Test at https://hrzwahusa.github.io/Open-Soundtouch/index.html
 
 ## Build
 
