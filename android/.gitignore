@@ -10,3 +10,9 @@
 local.properties
 app/build/
 build/
+# Signed release output (Generate Signed Bundle / APK)
+app/release/
+*.aab
+*.apk
+*.keystore
+*.jks
