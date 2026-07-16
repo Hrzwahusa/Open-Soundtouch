@@ -37,6 +37,7 @@ ignore/
 soundtouch_devices.json
 group_config.json
 radio_favorites.json
+app_config.json
 
 # Local audio/test artifacts
 wireshark_log.pcapng
