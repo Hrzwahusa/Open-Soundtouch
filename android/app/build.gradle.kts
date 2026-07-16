@@ -6,12 +6,13 @@ plugins {
 
 android {
     namespace = "com.opensoundtouch"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.opensoundtouch"
+        // Play identity (permanent after first upload); source package stays com.opensoundtouch
+        applicationId = "com.hrzwahusa.opensoundtouch"
         minSdk = 26          // Android 8; audio-capture (Phase 5) requires 29+ and is gated
-        targetSdk = 34
+        targetSdk = 36       // Play requires >= 35 now, 36 from Aug 2026
         versionCode = 1
         versionName = "0.1.0"
     }
