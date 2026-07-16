@@ -67,4 +67,55 @@
     <string name="now_playing">Now Playing</string>
     <string name="status_fmt">Status: %1$s</string>
     <string name="language">Language</string>
+
+    <!-- Status line + transient messages -->
+    <string name="group_default">Group</string>
+    <string name="st_ready">Ready</string>
+    <string name="st_searching">Searching devices…</string>
+    <string name="st_none_found">None found (saved ones kept)</string>
+    <string name="st_found">%1$d found</string>
+    <string name="st_connecting">Connecting to %1$s …</string>
+    <string name="st_not_reachable">No device reachable at %1$s</string>
+    <string name="st_connected">Connected: %1$s</string>
+    <string name="st_renamed">Renamed: %1$s</string>
+    <string name="st_rename_failed">Rename failed: %1$s</string>
+    <string name="st_searching_q">Searching \"%1$s\"…</string>
+    <string name="st_no_stations">No stations found</string>
+    <string name="st_stations">%1$d stations</string>
+    <string name="st_resolving">Resolving stream …</string>
+    <string name="st_resolve_failed">Couldn\'t resolve stream for \"%1$s\"</string>
+    <string name="st_playing">📻 %1$s</string>
+    <string name="st_playback_failed">Playback failed</string>
+    <string name="st_enter_url">Please enter an http stream URL</string>
+    <string name="st_already_fav">\"%1$s\" is already a favorite</string>
+    <string name="st_fav_saved">❤ %1$s saved</string>
+    <string name="st_group_need2">A group needs at least 2 devices</string>
+    <string name="st_creating_group">Creating group…</string>
+    <string name="st_group_active">🔗 Group %1$s</string>
+    <string name="st_group_create_failed">Couldn\'t create group</string>
+    <string name="st_activating">Activating %1$s…</string>
+    <string name="st_activation_failed">Activation failed</string>
+    <string name="st_dissolving">Dissolving group…</string>
+    <string name="st_dissolved">Group dissolved</string>
+    <string name="st_standby">%1$s not reachable (standby?)</string>
+    <string name="st_vol_read_failed">Reading volume failed: %1$s</string>
+    <string name="st_volume">Volume %1$d</string>
+    <string name="st_vol_set_failed">Setting volume failed: %1$s</string>
+    <string name="st_key_failed">Key %1$s failed: %2$s</string>
+    <string name="st_preset_assigning">Assigning preset %1$d…</string>
+    <string name="st_preset_set">🎛 Preset %1$d: %2$s</string>
+    <string name="st_preset_failed">Preset %1$d failed (SSH)</string>
+    <string name="st_preset_deleted">Preset %1$d deleted</string>
+    <string name="st_stream_starting">Starting audio stream…</string>
+    <string name="st_no_ip">Couldn\'t determine own IP</string>
+    <string name="st_streaming">🎧 Streaming phone audio</string>
+    <string name="st_stream_start_failed">Speaker couldn\'t start the stream</string>
+    <string name="st_stream_stopped">Audio stream stopped</string>
+
+    <!-- Foreground service notification -->
+    <string name="svc_channel">Audio streaming</string>
+    <string name="svc_text">Streaming audio to the speaker</string>
+    <string name="svc_quieter">Quieter</string>
+    <string name="svc_louder">Louder</string>
+    <string name="svc_stop">Stop</string>
 </resources>

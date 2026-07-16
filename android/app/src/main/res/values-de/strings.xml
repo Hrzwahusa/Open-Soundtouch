@@ -66,4 +66,55 @@
     <string name="now_playing">Now Playing</string>
     <string name="status_fmt">Status: %1$s</string>
     <string name="language">Sprache</string>
+
+    <!-- Status line + transient messages -->
+    <string name="group_default">Gruppe</string>
+    <string name="st_ready">Bereit</string>
+    <string name="st_searching">Suche Geräte…</string>
+    <string name="st_none_found">Keine neuen gefunden (gespeicherte bleiben)</string>
+    <string name="st_found">%1$d gefunden</string>
+    <string name="st_connecting">Verbinde zu %1$s …</string>
+    <string name="st_not_reachable">Kein Gerät unter %1$s erreichbar</string>
+    <string name="st_connected">Verbunden: %1$s</string>
+    <string name="st_renamed">Umbenannt: %1$s</string>
+    <string name="st_rename_failed">Umbenennen fehlgeschlagen: %1$s</string>
+    <string name="st_searching_q">Suche \"%1$s\"…</string>
+    <string name="st_no_stations">Keine Sender gefunden</string>
+    <string name="st_stations">%1$d Sender</string>
+    <string name="st_resolving">Löse Stream auf …</string>
+    <string name="st_resolve_failed">Stream für \"%1$s\" nicht auflösbar</string>
+    <string name="st_playing">📻 %1$s</string>
+    <string name="st_playback_failed">Wiedergabe fehlgeschlagen</string>
+    <string name="st_enter_url">Bitte eine http-Stream-URL angeben</string>
+    <string name="st_already_fav">\"%1$s\" ist schon Favorit</string>
+    <string name="st_fav_saved">❤ %1$s gespeichert</string>
+    <string name="st_group_need2">Gruppe braucht mindestens 2 Geräte</string>
+    <string name="st_creating_group">Erstelle Gruppe…</string>
+    <string name="st_group_active">🔗 Gruppe %1$s</string>
+    <string name="st_group_create_failed">Gruppe konnte nicht erstellt werden</string>
+    <string name="st_activating">Aktiviere %1$s…</string>
+    <string name="st_activation_failed">Aktivierung fehlgeschlagen</string>
+    <string name="st_dissolving">Löse Gruppe auf…</string>
+    <string name="st_dissolved">Gruppe aufgelöst</string>
+    <string name="st_standby">%1$s nicht erreichbar (Standby?)</string>
+    <string name="st_vol_read_failed">Lautstärke lesen fehlgeschlagen: %1$s</string>
+    <string name="st_volume">Lautstärke %1$d</string>
+    <string name="st_vol_set_failed">Lautstärke setzen fehlgeschlagen: %1$s</string>
+    <string name="st_key_failed">Taste %1$s fehlgeschlagen: %2$s</string>
+    <string name="st_preset_assigning">Lege Preset %1$d an…</string>
+    <string name="st_preset_set">🎛 Preset %1$d: %2$s</string>
+    <string name="st_preset_failed">Preset %1$d fehlgeschlagen (SSH)</string>
+    <string name="st_preset_deleted">Preset %1$d gelöscht</string>
+    <string name="st_stream_starting">Starte Audio-Stream…</string>
+    <string name="st_no_ip">Eigene IP nicht ermittelbar</string>
+    <string name="st_streaming">🎧 Streame Handy-Audio</string>
+    <string name="st_stream_start_failed">Box konnte Stream nicht starten</string>
+    <string name="st_stream_stopped">Audio-Stream gestoppt</string>
+
+    <!-- Foreground service notification -->
+    <string name="svc_channel">Audio-Streaming</string>
+    <string name="svc_text">Streamt Audio an den Lautsprecher</string>
+    <string name="svc_quieter">Leiser</string>
+    <string name="svc_louder">Lauter</string>
+    <string name="svc_stop">Stopp</string>
 </resources>

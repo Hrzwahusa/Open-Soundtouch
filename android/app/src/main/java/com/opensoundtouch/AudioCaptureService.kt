@@ -456,25 +456,25 @@ class AudioCaptureService : Service() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Audio-Streaming", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, getString(R.string.svc_channel), NotificationManager.IMPORTANCE_LOW)
             )
         }
         val builder = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Open SoundTouch")
-            .setContentText("Streamt Audio an den Lautsprecher")
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(getString(R.string.svc_text))
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .addAction(
-                android.R.drawable.ic_media_rew, "Leiser",
+                android.R.drawable.ic_media_rew, getString(R.string.svc_quieter),
                 servicePendingIntent(ACTION_VOL_DOWN, 1),
             )
             .addAction(
-                android.R.drawable.ic_media_ff, "Lauter",
+                android.R.drawable.ic_media_ff, getString(R.string.svc_louder),
                 servicePendingIntent(ACTION_VOL_UP, 2),
             )
             .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel, "Stopp",
+                android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.svc_stop),
                 servicePendingIntent(ACTION_STOP, 3),
             )
         mediaSession?.let { s ->

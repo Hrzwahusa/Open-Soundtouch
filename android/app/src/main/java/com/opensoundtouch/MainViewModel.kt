@@ -30,7 +30,7 @@ data class UiState(
     val selected: Device? = null,
     val nowPlaying: NowPlaying? = null,
     val volume: Int? = null,
-    val status: String = "Bereit",
+    val status: String = "",
     val searchBusy: Boolean = false,
     val searchResults: List<Station> = emptyList(),
     val favorites: List<Favorite> = emptyList(),
@@ -53,11 +53,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val groupStore = GroupStore(app)
     private val deviceStore = DeviceStore(app)
 
+    /** Localized string via the app resources (honors the in-app language). */
+    private fun str(resId: Int, vararg args: Any): String =
+        getApplication<Application>().getString(resId, *args)
+
+    private val lastErr: String get() = SoundTouchClient.lastError ?: "?"
+
     init {
         _state.value = _state.value.copy(
             favorites = favStore.load(),
             savedGroups = groupStore.load(),
             devices = deviceStore.load(),
+            status = str(R.string.st_ready),
         )
     }
 
@@ -90,12 +97,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val devs = _state.value.devices.map { if (it.ip == dev.ip) updated else it }
                 deviceStore.save(devs)
                 _state.value = _state.value.copy(
-                    selected = updated, devices = devs, status = "Umbenannt: $name",
+                    selected = updated, devices = devs, status = str(R.string.st_renamed, name),
                 )
             } else {
-                _state.value = _state.value.copy(
-                    status = "Umbenennen fehlgeschlagen: ${SoundTouchClient.lastError ?: "?"}",
-                )
+                _state.value = _state.value.copy(status = str(R.string.st_rename_failed, lastErr))
             }
         }
     }
@@ -104,7 +109,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.value.selected?.let { SoundTouchClient(it.ip) }
 
     fun discover() {
-        _state.value = _state.value.copy(scanning = true, status = "Suche Geräte…")
+        _state.value = _state.value.copy(scanning = true, status = str(R.string.st_searching))
         viewModelScope.launch {
             val devices = Discovery.scan()
             // Merge with saved devices so standby speakers (not found by the scan)
@@ -112,7 +117,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             rememberDevices(devices)
             _state.value = _state.value.copy(
                 scanning = false,
-                status = if (devices.isEmpty()) "Keine neuen gefunden (gespeicherte bleiben)" else "${devices.size} gefunden",
+                status = if (devices.isEmpty()) str(R.string.st_none_found)
+                else str(R.string.st_found, devices.size),
             )
         }
     }
@@ -128,27 +134,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             selected = device, selectedGroup = null, memberVolumes = emptyMap(),
             sshReachable = null, presets = emptyMap(),
-            status = "Verbunden: ${device.name}",
+            status = str(R.string.st_connected, device.name),
         )
         refresh()
     }
 
     /**
-     * Direkt per IP verbinden (Fallback zur Discovery). Nötig z. B. im Android-
-     * Emulator, dessen NAT-WLAN (10.0.2.x) das echte LAN nicht scannt – eine
-     * direkte Verbindung zur bekannten Box-IP wird aber via Host geroutet.
+     * Connect directly by IP (discovery fallback). Needed e.g. in the Android
+     * emulator, whose NAT Wi-Fi (10.0.2.x) can't scan the real LAN — a direct
+     * connection to the known speaker IP is routed through the host.
      */
     fun addByIp(ip: String) {
         val clean = ip.trim()
         if (clean.isEmpty()) return
-        _state.value = _state.value.copy(status = "Verbinde zu $clean …")
+        _state.value = _state.value.copy(status = str(R.string.st_connecting, clean))
         viewModelScope.launch {
             val dev = SoundTouchClient(clean).getInfo()
             if (dev != null) {
                 rememberDevices(listOf(dev))
                 select(dev)
             } else {
-                _state.value = _state.value.copy(status = "Kein Gerät unter $clean erreichbar")
+                _state.value = _state.value.copy(status = str(R.string.st_not_reachable, clean))
             }
         }
     }
@@ -171,9 +177,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ok = c.sendKey(key)
             if (!ok) {
-                _state.value = _state.value.copy(
-                    status = "Taste $key fehlgeschlagen: ${SoundTouchClient.lastError ?: "?"}",
-                )
+                _state.value = _state.value.copy(status = str(R.string.st_key_failed, key, lastErr))
             }
             refresh()
         }
@@ -186,18 +190,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // which the single-connection on-device proxy handles far more reliably.
             val cur = _state.value.volume ?: c.getVolume()?.actual
             if (cur == null) {
-                _state.value = _state.value.copy(
-                    status = "Lautstärke lesen fehlgeschlagen: ${SoundTouchClient.lastError ?: "?"}",
-                )
+                _state.value = _state.value.copy(status = str(R.string.st_vol_read_failed, lastErr))
                 return@launch
             }
             val next = (cur + delta).coerceIn(0, 100)
             if (c.setVolume(next)) {
-                _state.value = _state.value.copy(volume = next, status = "Lautstärke $next")
+                _state.value = _state.value.copy(volume = next, status = str(R.string.st_volume, next))
             } else {
-                _state.value = _state.value.copy(
-                    status = "Lautstärke setzen fehlgeschlagen: ${SoundTouchClient.lastError ?: "?"}",
-                )
+                _state.value = _state.value.copy(status = str(R.string.st_vol_set_failed, lastErr))
             }
         }
     }
@@ -206,13 +206,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun search(query: String) {
         if (query.isBlank()) return
-        _state.value = _state.value.copy(searchBusy = true, status = "Suche „$query“…")
+        _state.value = _state.value.copy(searchBusy = true, status = str(R.string.st_searching_q, query))
         viewModelScope.launch {
             val results = tunein.search(query)
             _state.value = _state.value.copy(
                 searchBusy = false,
                 searchResults = results,
-                status = if (results.isEmpty()) "Keine Sender gefunden" else "${results.size} Sender",
+                status = if (results.isEmpty()) str(R.string.st_no_stations)
+                else str(R.string.st_stations, results.size),
             )
         }
     }
@@ -220,15 +221,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Play a station: resolve its stream URL (guide id / path / direct) then DLNA. */
     fun playStation(idOrUrl: String, name: String) {
         val dev = _state.value.selected ?: return
-        _state.value = _state.value.copy(status = "Löse Stream auf …")
+        _state.value = _state.value.copy(status = str(R.string.st_resolving))
         viewModelScope.launch {
             val stream = tunein.resolveStreamUrl(idOrUrl)
             if (stream == null) {
-                _state.value = _state.value.copy(status = "Stream für „$name“ nicht auflösbar")
+                _state.value = _state.value.copy(status = str(R.string.st_resolve_failed, name))
                 return@launch
             }
             val ok = dlna.playUrl(dev.ip, stream, title = name)
-            _state.value = _state.value.copy(status = if (ok) "📻 $name" else "Wiedergabe fehlgeschlagen")
+            _state.value = _state.value.copy(
+                status = if (ok) str(R.string.st_playing, name) else str(R.string.st_playback_failed),
+            )
             refresh()
         }
     }
@@ -241,7 +244,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Play a raw stream URL typed by the user (DLNA). */
     fun playUrl(url: String) {
         if (!url.startsWith("http")) {
-            _state.value = _state.value.copy(status = "Bitte eine http-Stream-URL angeben")
+            _state.value = _state.value.copy(status = str(R.string.st_enter_url))
             return
         }
         playStation(url, "Radio")
@@ -250,12 +253,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun addFavorite(station: Station) {
         val fav = Favorite(name = station.name, guideId = station.guideId, image = station.image ?: "")
         if (_state.value.favorites.any { it.name == fav.name && it.guideId == fav.guideId }) {
-            _state.value = _state.value.copy(status = "„${fav.name}“ ist schon Favorit")
+            _state.value = _state.value.copy(status = str(R.string.st_already_fav, fav.name))
             return
         }
         val next = _state.value.favorites + fav
         favStore.save(next)
-        _state.value = _state.value.copy(favorites = next, status = "❤ ${fav.name} gespeichert")
+        _state.value = _state.value.copy(favorites = next, status = str(R.string.st_fav_saved, fav.name))
     }
 
     fun removeFavorite(fav: Favorite) {
@@ -273,11 +276,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val slaves = devs.filter { it.ip in memberIps && it.ip != masterIp }
             .map { ZoneMember(it.ip, it.mac) }
         if (slaves.isEmpty()) {
-            _state.value = _state.value.copy(status = "Gruppe braucht mindestens 2 Geräte")
+            _state.value = _state.value.copy(status = str(R.string.st_group_need2))
             return
         }
-        val group = SavedGroup(name.ifBlank { "Gruppe" }, master.ip, master.mac, slaves)
-        _state.value = _state.value.copy(status = "Erstelle Gruppe…")
+        val group = SavedGroup(name.ifBlank { str(R.string.group_default) }, master.ip, master.mac, slaves)
+        _state.value = _state.value.copy(status = str(R.string.st_creating_group))
         viewModelScope.launch {
             val ok = SoundTouchClient(master.ip).setZone(master.mac, master.ip, slaves)
             if (ok) {
@@ -285,12 +288,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 groupStore.save(next)
                 _state.value = _state.value.copy(
                     savedGroups = next, selectedGroup = group, selected = master,
-                    status = "🔗 Gruppe ${group.name}",
+                    status = str(R.string.st_group_active, group.name),
                 )
                 refreshGroupVolumes(group)
                 refresh()
             } else {
-                _state.value = _state.value.copy(status = "Gruppe konnte nicht erstellt werden")
+                _state.value = _state.value.copy(status = str(R.string.st_group_create_failed))
             }
         }
     }
@@ -303,19 +306,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun selectGroup(group: SavedGroup) {
         val master = _state.value.devices.firstOrNull { it.ip == group.masterIp }
             ?: Device(group.name, "Group", group.masterIp, group.masterMac, "")
-        _state.value = _state.value.copy(status = "Aktiviere ${group.name}…")
+        _state.value = _state.value.copy(status = str(R.string.st_activating, group.name))
         viewModelScope.launch {
             val ok = SoundTouchClient(group.masterIp)
                 .setZone(group.masterMac, group.masterIp, group.slaves)
             if (ok) {
                 _state.value = _state.value.copy(
                     selected = master, selectedGroup = group,
-                    status = "🔗 Gruppe ${group.name}",
+                    status = str(R.string.st_group_active, group.name),
                 )
                 refreshGroupVolumes(group)
                 refresh()
             } else {
-                _state.value = _state.value.copy(status = "Aktivierung fehlgeschlagen")
+                _state.value = _state.value.copy(status = str(R.string.st_activation_failed))
             }
         }
     }
@@ -323,13 +326,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Dissolve the active group (remove every slave). Devices then act standalone. */
     fun dissolveGroup() {
         val group = _state.value.selectedGroup ?: return
-        _state.value = _state.value.copy(status = "Löse Gruppe auf…")
+        _state.value = _state.value.copy(status = str(R.string.st_dissolving))
         viewModelScope.launch {
             val master = SoundTouchClient(group.masterIp)
             group.slaves.forEach { master.removeZoneSlave(group.masterMac, it.mac) }
             _state.value = _state.value.copy(
                 selectedGroup = null, memberVolumes = emptyMap(),
-                status = "Gruppe aufgelöst",
+                status = str(R.string.st_dissolved),
             )
         }
     }
@@ -359,7 +362,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val c = SoundTouchClient(ip)
             val cur = _state.value.memberVolumes[ip] ?: c.getVolume()?.actual
             if (cur == null) {
-                _state.value = _state.value.copy(status = "$ip nicht erreichbar (Standby?)")
+                _state.value = _state.value.copy(status = str(R.string.st_standby, ip))
                 return@launch
             }
             val next = (cur + delta).coerceIn(0, 100)
@@ -382,9 +385,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.selectedGroup != null) changeGroupVolume(delta) else changeVolume(delta)
     }
 
-    // ---- On-device presets (physical buttons, via SSH) --------------------
-
-    // ---- System audio capture (phone audio to speaker, Phase 5) -----------
+    // ---- System audio capture (phone audio to speaker) --------------------
 
     /** Start capturing this phone's audio and stream it to the selected speaker. */
     fun startPhoneStream(resultCode: Int, data: Intent, muteLocal: Boolean) {
@@ -404,16 +405,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         val ip = Discovery.localIp()
         if (ip == null) {
-            _state.value = _state.value.copy(status = "Eigene IP nicht ermittelbar")
+            _state.value = _state.value.copy(status = str(R.string.st_no_ip))
             return
         }
         val url = "http://$ip:${AudioCaptureService.PORT}/stream.wav"
-        _state.value = _state.value.copy(capturing = true, status = "Starte Audio-Stream…")
+        _state.value = _state.value.copy(capturing = true, status = str(R.string.st_stream_starting))
         viewModelScope.launch {
             kotlinx.coroutines.delay(800) // let the embedded server bind
-            val ok = dlna.playUrl(dev.ip, url, title = "Handy-Audio")
+            val ok = dlna.playUrl(dev.ip, url, title = "Phone audio")
             _state.value = _state.value.copy(
-                status = if (ok) "🎧 Streame Handy-Audio" else "Box konnte Stream nicht starten",
+                status = if (ok) str(R.string.st_streaming) else str(R.string.st_stream_start_failed),
             )
         }
     }
@@ -423,9 +424,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         app.startService(
             Intent(app, AudioCaptureService::class.java).apply { action = AudioCaptureService.ACTION_STOP }
         )
-        _state.value = _state.value.copy(capturing = false, status = "Audio-Stream gestoppt")
+        _state.value = _state.value.copy(capturing = false, status = str(R.string.st_stream_stopped))
         client()?.let { c -> viewModelScope.launch { c.sendKey(SoundTouchClient.KEY_STOP) } }
     }
+
+    // ---- On-device presets (physical buttons, via SSH) --------------------
 
     fun loadPresets(ip: String) {
         viewModelScope.launch {
@@ -441,21 +444,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Assign a favorite to a physical preset button (resolves its stream URL first). */
     fun assignPreset(slot: Int, fav: Favorite) {
         val ip = _state.value.selected?.ip ?: return
-        _state.value = _state.value.copy(status = "Lege Preset $slot an…")
+        _state.value = _state.value.copy(status = str(R.string.st_preset_assigning, slot))
         viewModelScope.launch {
             val url = tunein.resolveStreamUrl(fav.url.ifBlank { fav.guideId })
             if (url == null) {
-                _state.value = _state.value.copy(status = "Stream für ${fav.name} nicht auflösbar")
+                _state.value = _state.value.copy(status = str(R.string.st_resolve_failed, fav.name))
                 return@launch
             }
             val ssh = SshClient(ip)
             if (ssh.setPreset(slot, url, fav.name)) {
                 _state.value = _state.value.copy(
                     presets = ssh.readPresets(),
-                    status = "🎛 Preset $slot: ${fav.name}",
+                    status = str(R.string.st_preset_set, slot, fav.name),
                 )
             } else {
-                _state.value = _state.value.copy(status = "Preset $slot fehlgeschlagen (SSH)")
+                _state.value = _state.value.copy(status = str(R.string.st_preset_failed, slot))
             }
         }
     }
@@ -470,7 +473,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val ssh = SshClient(ip)
             if (ssh.clearPreset(slot)) {
                 _state.value = _state.value.copy(
-                    presets = ssh.readPresets(), status = "Preset $slot gelöscht",
+                    presets = ssh.readPresets(), status = str(R.string.st_preset_deleted, slot),
                 )
             }
         }
