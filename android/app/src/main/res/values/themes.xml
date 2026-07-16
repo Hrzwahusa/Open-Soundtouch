@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Base theme; Compose applies the real "Midnight" colors at runtime. -->
-    <style name="Theme.OpenSoundTouch" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#15171C</item>
-        <item name="android:navigationBarColor">#15171C</item>
-        <item name="android:windowBackground">#15171C</item>
-    </style>
-</resources>

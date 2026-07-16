@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">Open SoundTouch</string>
-    <string name="accessibility_desc">Leitet die Lautstärketasten des Handys an den Lautsprecher weiter, solange Audio-Streaming aktiv ist.</string>
-</resources>

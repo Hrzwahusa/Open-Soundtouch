@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — Open SoundTouch</title>
+  <meta name="description" content="Privacy policy for the Open SoundTouch Android app. No personal data is collected, stored on our servers, or shared — the app runs entirely on your local network." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%8A%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <nav class="nav">
+      <a class="brand" href="index.html" style="color:var(--text)"><span class="dot">🔊</span> Open SoundTouch</a>
+      <div>
+        <a class="navlink" href="index.html">Home</a>
+        &nbsp;·&nbsp;
+        <a class="navlink" href="https://github.com/Hrzwahusa/Open-Soundtouch" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </nav>
+
+    <main class="legal">
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: 16 July 2026 · Applies to the “Open SoundTouch” Android app (<code>com.hrzwahusa.opensoundtouch</code>).</p>
+
+      <div class="tldr">
+        <strong>In short:</strong> Open SoundTouch does not collect, store, or transmit any
+        personal data to the developer or to third parties. There are no accounts, no ads and
+        no analytics. The app runs on your local Wi‑Fi network and talks to your own speakers.
+      </div>
+
+      <h2>1. Who we are</h2>
+      <p>
+        Open SoundTouch is a free, independent, open‑source app that lets you control Bose
+        SoundTouch speakers on your local network after the official app was discontinued.
+        It is provided by the app’s developer (“we”, “us”). Contact details are at the bottom
+        of this page.
+      </p>
+
+      <h2>2. Data we collect</h2>
+      <p>
+        <strong>None.</strong> We do not operate any server, account system, ad network or
+        analytics. We do not collect names, email addresses, contacts, location, advertising
+        identifiers or usage statistics. We have no way to identify you.
+      </p>
+
+      <h2>3. Data stored on your device</h2>
+      <p>The app saves a small amount of data <strong>locally on your device only</strong>, so it can remember your setup:</p>
+      <ul>
+        <li>Discovered / added speakers (name, network address).</li>
+        <li>Your internet‑radio favorites.</li>
+        <li>Your multi‑room group definitions.</li>
+      </ul>
+      <p>
+        This information never leaves your device, is not sent to us, and is removed when you
+        uninstall the app or clear its storage.
+      </p>
+
+      <h2>4. Network communication</h2>
+      <p>The app communicates over the network only for the following purposes:</p>
+      <ul>
+        <li><strong>Your speakers (local network):</strong> commands, status, group setup and audio
+          streaming go directly to the SoundTouch speakers on your own Wi‑Fi.</li>
+        <li><strong>Internet‑radio search:</strong> when you search for stations, your search terms are
+          sent to TuneIn’s public directory (<code>opml.radiotime.com</code>) to return results. This
+          request is governed by TuneIn’s own privacy policy.</li>
+        <li><strong>Radio playback:</strong> when you play a station, your speaker (or the app) connects
+          to that station’s stream server to fetch the audio.</li>
+      </ul>
+      <p>We do not route any of this traffic through our own servers — we don’t have any.</p>
+
+      <h2>5. Permissions and why they are used</h2>
+      <ul>
+        <li><strong>Internet / network &amp; Wi‑Fi state:</strong> to find and control speakers on your
+          local network and to search/stream internet radio.</li>
+        <li><strong>Microphone / “record audio” (optional feature):</strong> used <em>only</em> if you
+          start the “stream this phone’s audio to a speaker” feature. It captures the audio your phone
+          is playing (via Android’s media‑projection screen‑capture consent) and sends it over your
+          local network to your own speaker. This audio is <strong>not</strong> recorded to storage and
+          is <strong>never</strong> sent to us or any third party. Nothing is captured unless you
+          explicitly start it and confirm the system dialog.</li>
+        <li><strong>Foreground service &amp; notifications:</strong> to keep the audio stream running
+          reliably and to show an ongoing notification (with volume controls) while it is active.</li>
+      </ul>
+
+      <h2>6. Sharing and selling of data</h2>
+      <p>We do not sell, rent or share any data, because we do not collect any.</p>
+
+      <h2>7. Children’s privacy</h2>
+      <p>
+        The app is not directed at children and does not knowingly collect any information from
+        anyone, including children under 13.
+      </p>
+
+      <h2>8. Changes to this policy</h2>
+      <p>
+        If the app’s behavior changes in a way that affects this policy, we will update this page
+        and the “last updated” date above.
+      </p>
+
+      <h2>9. Contact</h2>
+      <p>
+        Questions about this policy or the app? Email:
+        <a href="mailto:CONTACT_EMAIL_PLACEHOLDER">CONTACT_EMAIL_PLACEHOLDER</a>,
+        or open an issue on
+        <a href="https://github.com/Hrzwahusa/Open-Soundtouch" target="_blank" rel="noopener">GitHub</a>.
+      </p>
+
+      <p class="disclaimer">
+        Open SoundTouch is an independent, community project. It is not affiliated with, endorsed by,
+        or sponsored by Bose Corporation. “Bose” and “SoundTouch” are trademarks of their respective
+        owners.
+      </p>
+    </main>
+
+    <footer>
+      <div class="frow">
+        <div>© <span id="yr"></span> Open SoundTouch</div>
+        <div><a href="index.html">Home</a> &nbsp;·&nbsp; <a href="privacy.html">Privacy Policy</a></div>
+      </div>
+    </footer>
+  </div>
+  <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
+</body>
+</html>
