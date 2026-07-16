@@ -2,7 +2,7 @@
 
 **An open replacement for the discontinued Bose SoundTouch app – keeps SoundTouch speakers (10 / 20 / 30) alive without the Bose cloud.**
 
-> ⚠️ **Work in progress.** Runs stably as a Python desktop app on **Windows & Linux**. Tested primarily with the SoundTouch 10. An Android app and prebuilt release installers are planned (see [Roadmap](#-roadmap)).
+You can join the closed Beta Test for android at https://hrzwahusa.github.io/Open-Soundtouch/index.html
 
 Bose shut down the cloud and the app for the SoundTouch line. This project brings the speakers back – locally, cloud-free – via the device's own SoundTouch Web API plus a small helper system installed permanently on the speaker.
 
