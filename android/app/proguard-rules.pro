@@ -1,0 +1,1 @@
+# Default ProGuard rules. Nothing custom yet (minify is disabled in release for now).

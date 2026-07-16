@@ -92,12 +92,23 @@ key_interceptor_cgi.sh    preset_handler_daemon.sh   rhino_preset_monitor.sh
 key_interceptor_daemon.sh preset_proxy_manager.sh    preset_system_init.sh
 radio_proxy.sh            preset_proxies.conf
 
-requirements.txt   README.md   todo.txt
+requirements.txt   README.md
 ignore/            # parked legacy/unused files (not in the repo)
 docs/              # SoundTouch Web API docs & notes
+android/           # Native Android app (Kotlin/Compose) — see android/README.md
 ```
 
 Runtime data (not in the repo): `soundtouch_devices.json`, `group_config.json`, `radio_favorites.json`.
+
+## 📱 Android app
+
+A native Android companion app (Kotlin + Jetpack Compose) lives in [`android/`](android/).
+It has feature parity with the desktop app except for the initial device setup
+(use the desktop wizard once): control, TuneIn search + favorites, multi-room
+groups with group/per-speaker volume, physical preset buttons (via SSH), phone
+audio streaming to the speaker, and system-wide volume-key control while
+streaming. Open the `android/` folder in Android Studio to build. Details and
+architecture: [`android/README.md`](android/README.md).
 
 ---
 
