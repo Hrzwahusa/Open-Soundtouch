@@ -54,8 +54,6 @@ Over SSH, scripts are copied to `/mnt/nv/` (persistent storage) and an autostart
 - **Rhino monitor** (`rhino_preset_monitor.sh`): detects **physical** preset presses via the system log and calls the handler.
 - **Preset handler** (`preset_handler_daemon.sh`): plays the stream configured in `preset_proxies.conf` directly over DLNA.
 
-> An optional "mock Marge" server (fakes the Bose cloud, suppresses cloud errors) lives under `ignore/` and is **not** installed by the wizard. Radio/presets/control work without it.
-
 ---
 
 ## 🛠️ Setup wizard (onboard a fresh/factory-reset device)
@@ -111,13 +109,6 @@ Runtime data (not in the repo): `soundtouch_devices.json`, `group_config.json`, 
 - **No SSH/presets after a speaker reboot:** once set up via the wizard, `rc.local` starts everything automatically. A quick reboot of the device confirms it.
 - **Device unreachable in standby:** briefly wake it (e.g. press a button), then the API responds again.
 
----
-
-## 🗺️ Roadmap
-
-- [ ] **Android app** (control from your phone)
-- [ ] **Release builds** – Windows installer (PyInstaller), Android APK
-- [ ] HTTPS radio streams (on-device proxy)
 
 ---
 
