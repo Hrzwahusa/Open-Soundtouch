@@ -4,7 +4,9 @@ import android.Manifest
 import android.app.Activity
 import android.app.LocaleManager
 import android.content.Context
+import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.LocaleList
 import android.os.Build
 import android.os.Bundle
@@ -147,6 +149,24 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
 
         if (s.selected == null) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                val ctx = LocalContext.current
+                Card(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(stringResource(R.string.setup_hint), fontSize = 12.sp)
+                        TextButton(
+                            onClick = {
+                                ctx.startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("https://github.com/Hrzwahusa/Open-Soundtouch/releases/latest"),
+                                    )
+                                )
+                            },
+                            contentPadding = PaddingValues(0.dp),
+                        ) { Text(stringResource(R.string.setup_link)) }
+                    }
+                }
+
                 var manualIp by remember { mutableStateOf("") }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(

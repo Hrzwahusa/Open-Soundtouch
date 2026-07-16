@@ -67,6 +67,8 @@
     <string name="now_playing">Now Playing</string>
     <string name="status_fmt">Status: %1$s</string>
     <string name="language">Language</string>
+    <string name="setup_hint">First-time setup — getting a speaker onto Wi-Fi and installing the preset system — is done once with the desktop app (Windows). After that, control everything from here.</string>
+    <string name="setup_link">Get the desktop app ↗</string>
 
     <!-- Status line + transient messages -->
     <string name="group_default">Group</string>

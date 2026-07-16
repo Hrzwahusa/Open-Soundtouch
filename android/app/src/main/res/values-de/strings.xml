@@ -66,6 +66,8 @@
     <string name="now_playing">Now Playing</string>
     <string name="status_fmt">Status: %1$s</string>
     <string name="language">Sprache</string>
+    <string name="setup_hint">Die Ersteinrichtung — Lautsprecher ins WLAN bringen und das Preset-System installieren — läuft einmalig über die Desktop-App (Windows). Danach steuerst du alles von hier.</string>
+    <string name="setup_link">Desktop-App holen ↗</string>
 
     <!-- Status line + transient messages -->
     <string name="group_default">Gruppe</string>
