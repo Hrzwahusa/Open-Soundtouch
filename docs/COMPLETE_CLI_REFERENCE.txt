@@ -1,0 +1,464 @@
+================================================================================
+BOSE SOUNDTOUCH - COMPLETE CLI COMMAND REFERENCE
+================================================================================
+Extracted from Firmware: 27.0.6.46330.5043500
+Device: SoundTouch 10 (Rhino)
+Date: 2026-01-18
+
+This file contains ALL CLI commands and configuration tags found in the firmware.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. SYS Commands (77 total)
+2. DEMO Commands  
+3. NETWORK Commands
+4. AIRPLAY Commands
+5. BLUETOOTH Commands
+6. UPNP Commands
+7. SPOTIFY Commands
+8. Configuration XML Tags (43 total)
+9. CLI Server Commands
+
+================================================================================
+1. SYS COMMANDS (77 total)
+================================================================================
+
+sys auxkey
+sys broadcast
+sys broadcast presets
+sys broadcast recents
+sys broadcast recents (deprecated)
+sys configuration
+sys configuration <XMLTag> <Value>
+sys configuration < XMLTag > < XMLValue >
+sys critical error clear
+sys demourl
+sys demourl <url>
+sys devicelist
+sys factorydefault
+sys getprodserial
+sys getprodswver
+sys iconurl
+sys list sources
+sys list sources pers
+sys list sources requires zero arguments
+sys login
+sys login pandora [<username> <password>]
+sys net down
+sys net up
+sys next
+sys next requires no argument
+sys notify
+sys pause
+sys pause requires no argument
+sys play
+sys playpause
+sys play_pause requires no argument
+sys play requires no argument
+sys power
+sys power requires no argument
+sys presetkey
+sys presetkey [<number> p|ph] (p=press&release, ph=press&hold)
+sys presetkey requires 2 arguments
+sys prev
+sys prev requires no argument
+sys reboot
+sys remove 
+sys remove source requires two arguments
+sys remove type name
+sys select
+sys selectslave
+sys select source requires two arguments
+sys select type name
+sys set language
+sys set language [1-n]
+sys set language requires 0 or 1 argument
+sys setup
+sys setupap
+sys standby
+sys standby [  |lowpower|charging]
+sys stop
+sys stop requires no argument
+sys syncMarge
+sys timeout
+sys timeout inactivity seconds|enable|disable or sys timeout onbattery seconds
+sys ver
+sys volkeycombo
+sys volkeycombo [preset no]
+sys volume
+sys volume down
+sys volume down [delta]
+sys volume max
+sys volume max [threshold]
+sys volume min
+sys volume min [threshold]
+sys volume mute
+sys volume mute (toggle|on|off)
+sys volume mute [value]
+sys volume [setvalue updateDisplay]
+sys volume target = %d actual = %d
+sys volume up
+sys volume up [delta]
+sys volume up [value]
+
+================================================================================
+2. OTHER CLI COMMANDS (DEMO, NETWORK, AIRPLAY, etc.)
+================================================================================
+
+airplay activate
+airplay advance config profile
+airplay advance config profile <IP Addres> <Mask> <Gateway> <Proxy> <Proxy Port> <DNS1> <DNS2>
+airplay allow
+airplay async is 
+airplay async <on/off>
+airplay bco reset control
+airplay bco reset control [ delay-in-seconds [ attempt 0..2 [NTP-SYNC 0..1 ]]]
+airplay bco status
+airplay boot into bsl
+airplay clear profile
+airplay clear wifi profiles
+airplay cne pr
+airplay cne read
+airplay CnE read test requires one argument
+airplay cne rs
+airplay cne rs mfg
+airplay cne write
+airplay CnE write test requires two argument
+airplay device name set
+airplay dhcp off
+airplay dhcp on
+airplay disable profile manager
+airplay enable
+airplay enable profile manager
+airplay enter setupap
+airplay execute cne read <path>
+airplay execute cne write <path> <value>
+airplay factorydefault
+airplay get active profile
+airplay get audio delay
+airplay get bco dhcp
+airplay get bco ip address
+airplay get bco versions
+airplay get connection state
+airplay get connection type
+airplay get host ip address
+airplay get host mac
+airplay get ip profile
+airplay get ip status
+airplay get profile count
+airplay get rssi level
+airplay get SSID
+airplay get wpa cipher
+airplay graceful shutdown
+airplay mac
+airplay mute
+airplay next
+airplay pause
+airplay per pr
+airplay per rs
+airplay persistent read requires one argument
+airplay Persistent write test requires two argument
+airplay play
+airplay prev
+airplay prevent
+airplay print wifi profiles
+airplay psm enter
+airplay psm exit
+airplay radio off
+airplay radio on
+airplay rate adaptation
+airplay rate adaptation <enable/disable>
+airplay rate adaptation requires an argument
+airplay read persistent setting
+airplay read persistent setting <setting>
+airplay reset
+airplay reset cne settings
+airplay reset setupap
+airplay restart bco mdns
+airplay restart bco service <service number>
+airplay restore factory defaults
+airplay set audio delay
+airplay set audio delay <delay>
+airplay set device name <name>
+airplay set device name requires one argument
+airplay set host ip address
+airplay set host ip address <address>
+airplay set host mac
+airplay set host mac <address>
+airplay set non ascii name - use default test
+airplay set shell uart1
+airplay set spotify name
+airplay set spotify name <device name>
+airplay setupap enter
+airplay setupap exit
+airplay set utf8 cne name
+airplay set utf8 cne name <device Name>
+airplay set volume
+airplay set volume requires an argument
+airplay set volume <volume>
+airplay site survey
+airplay spi req
+airplay start bco mdns
+airplay start bco service <service number>
+airplay state
+airplay stop bco mdns
+airplay stop bco service <service number>
+airplay unmute
+airplay wep profile
+airplay wep profile <SSID> <Key>
+airplay wifi profile
+airplay wifi profile <SSID>
+airplay wmm off
+airplay wmm on
+airplay wpa profile
+airplay wpa profile <SSID> <Cipher> <Passphrase>
+airplay write persistent setting
+airplay write persistent setting <setting> <value>
+demo abl
+demo abl [on|off|info]
+demo ae
+demo bt clearpairlist
+demo bt enter normal
+demo bt enter normal: Source select the BT source. It will try to connect to the last device that played audio or it will go to pairing mode if the pairing list is empty.
+demo bt enter pairmode
+demo bt enter pairmode: Source select the BT source and always go to pairing mode.
+demo bt exit
+demo create source
+demo echo
+demo echo < string_to_echo >
+demo enter
+demo exit
+demo ig
+demo ig (<button> | <device> | <all>) <0,1>
+demo kp
+demo ps config
+demo ps config <preset #> <source> <preset_name> <track_name> <album_name> <artist_name> <station>
+demo ps config requires <preset #> <source> <preset name> <album> <artist> [<station> | <track>]
+
+================================================================================
+3. CONFIGURATION XML TAGS (43 total)
+================================================================================
+These tags can potentially be used with: sys configuration <tag> <value>
+
+arg
+AudioPathParameters
+AVSHttp1Url
+bmxRegistryUrl
+Configuration
+defaultSetupSsid
+disablePowerSaving
+Extensions
+hasDemo
+hasKeys
+hasStatusLed
+hasWifiLed
+Images
+isAudioNotificationSupported
+isAvahiRequired
+isBluetoothAudioSourceSupported
+isLRStereoEnabled
+isOutOfBoxAPSetupSupported
+isOutOfBoxEnabled
+isSsdpEnabled
+isZeroconfEnabled
+margeServerUrl
+moduleType
+Operations
+outputDeviceParameters
+productName
+saveMargeCustomerReport
+ShepherdConfig
+SoftwareUpdateSpec
+SoundTouchSdkPrivateCfg
+speakerType
+statsServerUrl
+swUpdateDeviceId
+swUpdateUrl
+swUpdateXmlFilePath
+TPDATokenUrl
+TPDATokenUrlEfe
+TPDATokenUrlInt
+usePandoraProductionServer
+variantName
+VoiceConfig
+webExtensionsFile
+WebServerCfg
+airplay activate
+airplay advance config profile
+airplay advance config profile <IP Addres> <Mask> <Gateway> <Proxy> <Proxy Port> <DNS1> <DNS2>
+airplay allow
+airplay async is 
+airplay async <on/off>
+airplay bco reset control
+airplay bco reset control [ delay-in-seconds [ attempt 0..2 [NTP-SYNC 0..1 ]]]
+airplay bco status
+airplay boot into bsl
+airplay clear profile
+airplay clear wifi profiles
+airplay cne pr
+airplay cne read
+airplay CnE read test requires one argument
+airplay cne rs
+airplay cne rs mfg
+airplay cne write
+airplay CnE write test requires two argument
+airplay device name set
+airplay dhcp off
+airplay dhcp on
+airplay disable profile manager
+airplay enable
+airplay enable profile manager
+airplay enter setupap
+airplay execute cne read <path>
+airplay execute cne write <path> <value>
+airplay factorydefault
+airplay get active profile
+airplay get audio delay
+airplay get bco dhcp
+airplay get bco ip address
+airplay get bco versions
+airplay get connection state
+airplay get connection type
+airplay get host ip address
+airplay get host mac
+airplay get ip profile
+airplay get ip status
+airplay get profile count
+airplay get rssi level
+airplay get SSID
+airplay get wpa cipher
+airplay graceful shutdown
+airplay mac
+airplay mute
+airplay next
+airplay pause
+airplay per pr
+airplay per rs
+airplay persistent read requires one argument
+airplay Persistent write test requires two argument
+airplay play
+airplay prev
+airplay prevent
+airplay print wifi profiles
+airplay psm enter
+airplay psm exit
+airplay radio off
+airplay radio on
+airplay rate adaptation
+airplay rate adaptation <enable/disable>
+airplay rate adaptation requires an argument
+airplay read persistent setting
+airplay read persistent setting <setting>
+airplay reset
+airplay reset cne settings
+airplay reset setupap
+airplay restart bco mdns
+airplay restart bco service <service number>
+airplay restore factory defaults
+airplay set audio delay
+airplay set audio delay <delay>
+airplay set device name <name>
+airplay set device name requires one argument
+airplay set host ip address
+airplay set host ip address <address>
+airplay set host mac
+airplay set host mac <address>
+airplay set non ascii name - use default test
+airplay set shell uart1
+airplay set spotify name
+airplay set spotify name <device name>
+airplay setupap enter
+airplay setupap exit
+airplay set utf8 cne name
+airplay set utf8 cne name <device Name>
+airplay set volume
+airplay set volume requires an argument
+airplay set volume <volume>
+airplay site survey
+airplay spi req
+airplay start bco mdns
+airplay start bco service <service number>
+airplay state
+airplay stop bco mdns
+airplay stop bco service <service number>
+airplay unmute
+airplay wep profile
+airplay wep profile <SSID> <Key>
+airplay wifi profile
+airplay wifi profile <SSID>
+airplay wmm off
+airplay wmm on
+airplay wpa profile
+airplay wpa profile <SSID> <Cipher> <Passphrase>
+airplay write persistent setting
+airplay write persistent setting <setting> <value>
+demo abl
+demo abl [on|off|info]
+demo ae
+demo bt clearpairlist
+demo bt enter normal
+demo bt enter normal: Source select the BT source. It will try to connect to the last device that played audio or it will go to pairing mode if the pairing list is empty.
+demo bt enter pairmode
+demo bt enter pairmode: Source select the BT source and always go to pairing mode.
+demo bt exit
+demo create source
+demo echo
+demo echo < string_to_echo >
+demo enter
+demo exit
+demo ig
+demo ig (<button> | <device> | <all>) <0,1>
+demo kp
+demo ps config
+demo ps config <preset #> <source> <preset_name> <track_name> <album_name> <artist_name> <station>
+demo ps config requires <preset #> <source> <preset name> <album> <artist> [<station> | <track>]
+
+================================================================================
+3. CONFIGURATION XML TAGS (43 total)
+================================================================================
+These tags can potentially be used with: sys configuration <tag> <value>
+
+arg
+AudioPathParameters
+AVSHttp1Url
+bmxRegistryUrl
+Configuration
+defaultSetupSsid
+disablePowerSaving
+Extensions
+hasDemo
+hasKeys
+hasStatusLed
+hasWifiLed
+Images
+isAudioNotificationSupported
+isAvahiRequired
+isBluetoothAudioSourceSupported
+isLRStereoEnabled
+isOutOfBoxAPSetupSupported
+isOutOfBoxEnabled
+isSsdpEnabled
+isZeroconfEnabled
+margeServerUrl
+moduleType
+Operations
+outputDeviceParameters
+productName
+saveMargeCustomerReport
+ShepherdConfig
+SoftwareUpdateSpec
+SoundTouchSdkPrivateCfg
+speakerType
+statsServerUrl
+swUpdateDeviceId
+swUpdateUrl
+swUpdateXmlFilePath
+TPDATokenUrl
+TPDATokenUrlEfe
+TPDATokenUrlInt
+usePandoraProductionServer
+variantName
+VoiceConfig
+webExtensionsFile
+WebServerCfg

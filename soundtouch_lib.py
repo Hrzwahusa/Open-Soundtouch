@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Bose SoundTouch Device Library
 Core functionality for discovering and controlling SoundTouch devices.
@@ -90,6 +92,7 @@ class SoundTouchDiscovery:
         try:
             url = f"http://{ip}:{self.port}/info"
             response = requests.get(url, timeout=self.TIMEOUT, verify=False)
+            response.encoding = 'utf-8'  # Ensure UTF-8 decoding
             
             if response.status_code == 200:
                 device_info = self._parse_info_response(response.text, ip)
@@ -102,7 +105,10 @@ class SoundTouchDiscovery:
     def _parse_info_response(self, xml_text: str, ip: str) -> Optional[Dict]:
         """Parse the /info XML response."""
         try:
-            root = ET.fromstring(xml_text)
+            # Ensure UTF-8 encoding for XML parsing
+            if isinstance(xml_text, bytes):
+                xml_text = xml_text.decode('utf-8')
+            root = ET.fromstring(xml_text.encode('utf-8') if isinstance(xml_text, str) else xml_text)
             
             name = root.findtext('name', 'Unknown')
             device_type = root.findtext('type', 'Unknown')
@@ -214,6 +220,7 @@ class SoundTouchController:
         'power': 'POWER',
         'play': 'PLAY',
         'pause': 'PAUSE',
+        'play_pause': 'PLAY_PAUSE',
         'stop': 'STOP',
         'next': 'NEXT_TRACK',
         'next_track': 'NEXT_TRACK',
@@ -233,6 +240,8 @@ class SoundTouchController:
         'preset6': 'PRESET_6',
         'thumbsup': 'THUMBS_UP',
         'thumbsdown': 'THUMBS_DOWN',
+        'aux_input': 'AUX_INPUT',
+        'aux': 'AUX_INPUT',
     }
     
     def __init__(self, ip: str, port: int = 8090, timeout: int = 5):
@@ -249,6 +258,17 @@ class SoundTouchController:
         self.base_url = f"http://{ip}:{port}"
         self.timeout = timeout
         self.dlna_port = 8091  # Bose DLNA/UPnP AVTransport port
+        self.last_error = ''
+        self.override_nowplaying = None  # Fallback metadata for DLNA/manual streams
+
+    def _set_error(self, msg: str) -> None:
+        """Store last error for debugging and log to stdout."""
+        self.last_error = msg
+        if msg:
+            try:
+                print(f"[SoundTouch] {msg}")
+            except Exception:
+                pass
 
     def is_reachable(self, timeout: int = 2) -> bool:
         """
@@ -366,11 +386,36 @@ class SoundTouchController:
                 print(f"[DEBUG] now_playing response:\n{response.text}\n")
                 root = ET.fromstring(response.text)
                 status = NowPlayingStatus(root=root)
+                
+                # If we're streaming via DLNA/UPNP and have override metadata, use that
+                # The device shows the initial metadata we sent, but we have live updates
+                if self.override_nowplaying and status and status.source in ('UPNP', 'DLNA_HTTP'):
+                    # Use override but keep playStatus and position from device
+                    override_copy = self.override_nowplaying.copy()
+                    override_copy['playStatus'] = status.play_status  # Use property, not attribute
+                    override_copy['position'] = status.position
+                    print(f"[DEBUG] Using override metadata: {override_copy.get('track')} - {override_copy.get('artist')}")
+                    return NowPlayingStatus(**override_copy)
+                
+                # If device returns invalid/unknown but we have override (e.g., DLNA fallback), prefer override
+                if self.override_nowplaying:
+                    needs_override = False
+                    if not status or status.source in ('INVALID_SOURCE', 'UNKNOWN', None):
+                        needs_override = True
+                    if status and (not status.track or status.track.lower() == 'unknown'):
+                        needs_override = True
+                    if needs_override:
+                        return NowPlayingStatus(**self.override_nowplaying)
                 print(f"[DEBUG] Parsed: track={status.track}, duration={status.duration}, position={status.position}")
                 return status
+            # HTTP error; fallback to override if present
+            if self.override_nowplaying:
+                return NowPlayingStatus(**self.override_nowplaying)
             return None
         except Exception as e:
             print(f"[DEBUG] get_nowplaying error: {e}")
+            if self.override_nowplaying:
+                return NowPlayingStatus(**self.override_nowplaying)
             return None
     
     def get_volume(self) -> Optional[dict]:
@@ -407,10 +452,12 @@ class SoundTouchController:
             
             url = f"{self.base_url}/volume"
             headers = {'Content-Type': 'application/xml'}
-            
-            mute_str = 'true' if mute else 'false'
-            xml_body = f'<volume><targetvolume>{volume}</targetvolume><muteenabled>{mute_str}</muteenabled></volume>'
-            
+
+            # Zum SETZEN erwartet die Bose-API den Wert als Textinhalt von <volume>,
+            # NICHT <targetvolume> (das ist nur im GET-Response). Falsches Format
+            # wird mit HTTP 200 quittiert, aber ignoriert.
+            xml_body = f'<volume>{volume}</volume>'
+
             response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
             return response.status_code == 200
         except Exception:
@@ -535,6 +582,123 @@ class SoundTouchController:
         except Exception:
             return False
     
+    # ========================================================================
+    # YouTube Integration Methods
+    # ========================================================================
+    
+    def play_youtube_url(self, youtube_url: str, quality: str = "medium") -> bool:
+        """
+        Play a YouTube video on the SoundTouch device.
+        
+        Args:
+            youtube_url: YouTube video URL or video ID
+            quality: Audio quality - 'low', 'medium', or 'high' (default: medium)
+        
+        Returns:
+            True if playback started successfully
+        """
+        try:
+            from youtube_player import YouTubeAudioExtractor
+            
+            extractor = YouTubeAudioExtractor()
+            video_info = extractor.get_direct_audio_url(youtube_url, quality)
+            
+            if not video_info:
+                print(f"[YouTube] Failed to extract audio URL from: {youtube_url}")
+                return False
+            
+            print(f"[YouTube] Playing: {video_info['title']} ({video_info['duration']})")
+            
+            # Use full DLNA helper with HTTPS proxy support and metadata
+            success = self.play_url_dlna(
+                video_info['url'],
+                artist=video_info.get('uploader', 'YouTube'),
+                album="YouTube",
+                track=video_info.get('title', 'YouTube Track'),
+                proxy_https=True,
+            )
+            
+            if success:
+                print(f"[YouTube] ✅ Playback started successfully")
+            else:
+                print(f"[YouTube] ✗ Failed to start playback")
+            
+            return success
+            
+        except ImportError:
+            print("[YouTube] Error: youtube_player module not found")
+            print("Please ensure youtube_player.py is available")
+            return False
+        except Exception as e:
+            print(f"[YouTube] Exception: {e}")
+            return False
+    
+    def search_and_play_youtube(self, query: str, index: int = 0, quality: str = "medium") -> bool:
+        """
+        Search YouTube and play a result.
+        
+        Args:
+            query: Search query
+            index: Index of result to play (0 = first result)
+            quality: Audio quality - 'low', 'medium', or 'high'
+        
+        Returns:
+            True if playback started successfully
+        """
+        try:
+            from youtube_player import YouTubeAudioExtractor
+            
+            extractor = YouTubeAudioExtractor()
+            
+            print(f"[YouTube] Searching for: {query}")
+            results = extractor.search_youtube(query, max_results=index + 1)
+            
+            if not results:
+                print(f"[YouTube] No results found for: {query}")
+                return False
+            
+            if index >= len(results):
+                print(f"[YouTube] Index {index} out of range (found {len(results)} results)")
+                return False
+            
+            video = results[index]
+            print(f"[YouTube] Selected: {video['title']} by {video['uploader']}")
+            
+            return self.play_youtube_url(video['url'], quality)
+            
+        except ImportError:
+            print("[YouTube] Error: youtube_player module not found")
+            return False
+        except Exception as e:
+            print(f"[YouTube] Exception: {e}")
+            return False
+    
+    def get_youtube_search_results(self, query: str, max_results: int = 10) -> Optional[List[Dict]]:
+        """
+        Search YouTube and return results without playing.
+        
+        Args:
+            query: Search query
+            max_results: Maximum number of results (default: 10)
+        
+        Returns:
+            List of video info dicts, or None on error
+        """
+        try:
+            from youtube_player import YouTubeAudioExtractor
+            
+            extractor = YouTubeAudioExtractor()
+            results = extractor.search_youtube(query, max_results=max_results)
+            
+            return results if results else None
+            
+        except ImportError:
+            print("[YouTube] Error: youtube_player module not found")
+            return None
+        except Exception as e:
+            print(f"[YouTube] Exception: {e}")
+            return None
+    
     def get_sources(self) -> Optional[List[dict]]:
         """Get list of available sources."""
         try:
@@ -558,7 +722,7 @@ class SoundTouchController:
         except Exception:
             return None
     
-    def select_source(self, source: str, source_account: str = '') -> bool:
+    def select_source(self, source: str, source_account: str = '', name: str = '') -> bool:
         """
         Select a source/input.
         
@@ -570,13 +734,23 @@ class SoundTouchController:
             True if successful
         """
         try:
+            self._set_error('')
             url = f"{self.base_url}/select"
             headers = {'Content-Type': 'application/xml'}
-            xml_body = f'<ContentItem source="{source}" sourceAccount="{source_account}"></ContentItem>'
-            
+            # Only include optional attrs when present to avoid device-side validation errors
+            source_account_attr = f' sourceAccount="{source_account}"' if source_account else ''
+            name_attr = f' name="{name}"' if name else ''
+            xml_body = f'<ContentItem source="{source}"{source_account_attr}{name_attr}></ContentItem>'
+            print(f"[DEBUG] select_source request:\nPOST {url}\nBody: {xml_body}\n")
             response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
-            return response.status_code == 200
-        except Exception:
+            print(f"[DEBUG] select_source response:\n{response.status_code} {response.text}\n")
+            if response.status_code == 200:
+                self._set_error('')
+                return True
+            self._set_error(f"select_source failed HTTP {response.status_code}: {response.text[:200]}")
+            return False
+        except Exception as e:
+            self._set_error(f"select_source exception: {e}")
             return False
     
     def select_source_with_location(self, source: str, source_account: str, location: str, item_name: str = '', item_type: str = 'track', artist: str = '', album: str = '') -> bool:
@@ -596,6 +770,7 @@ class SoundTouchController:
             True if successful
         """
         try:
+            self._set_error('')
             url = f"{self.base_url}/select"
             headers = {'Content-Type': 'application/xml'}
             
@@ -612,14 +787,19 @@ class SoundTouchController:
             # Build source account attribute only if not empty
             source_account_attr = f' sourceAccount="{escape(source_account)}"' if source_account else ''
             
+            # LOCAL_INTERNET_RADIO should NOT have a type attribute
+            # type is only for TUNEIN, SPOTIFY, etc.
+            type_attr = '' if source == 'LOCAL_INTERNET_RADIO' else f'type="{escape(item_type)}" '
+            
             xml_body = (
                 f'<ContentItem source="{escape(source)}" '
-                f'type="{escape(item_type)}" '
+                f'{type_attr}'
                 f'{source_account_attr} '
                 f'location="{escape(location)}">'
                 f'{item_name_xml}'
                 f'</ContentItem>'
             )
+            debug_info = f"POST {url}\nBody: {xml_body}"
             
             response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
             if response.status_code == 200:
@@ -630,38 +810,713 @@ class SoundTouchController:
                 self.send_key('play')
                 time.sleep(0.3)
                 self.send_key('play')
+                self._set_error('')
                 return True
+            self._set_error(f"select_source_with_location failed HTTP {response.status_code}: {response.text[:200]} | {debug_info}")
             return False
-        except Exception:
+        except Exception as e:
+            self._set_error(f"select_source_with_location exception: {e}")
             return False
     
+    def _extract_stream_metadata(self, url: str, timeout: int = 5) -> dict:
+        """
+        Extract metadata from stream before playing.
+        Makes a quick HEAD/GET request to extract ICY headers.
+        
+        Args:
+            url: Stream URL
+            timeout: Request timeout in seconds
+            
+        Returns:
+            dict with station_name, genre, bitrate
+        """
+        metadata = {
+            'station_name': '',
+            'genre': '',
+            'bitrate': '',
+        }
+        
+        try:
+            # Try HEAD request first (faster)
+            headers = {'Icy-MetaData': '1', 'User-Agent': 'Mozilla/5.0'}
+            response = requests.head(url, headers=headers, timeout=timeout, allow_redirects=True)
+            
+            # Extract ICY headers
+            for key, value in response.headers.items():
+                key_lower = key.lower()
+                if key_lower == 'icy-name':
+                    metadata['station_name'] = value
+                elif key_lower == 'icy-genre':
+                    metadata['genre'] = value
+                elif key_lower == 'icy-br':
+                    metadata['bitrate'] = value
+            
+            print(f"📻 Stream metadata: {metadata['station_name']} ({metadata['genre']}) {metadata['bitrate']}kbps")
+        except Exception as e:
+            print(f"⚠️ Could not extract stream metadata: {e}")
+        
+        return metadata
+    
+    def store_preset(self, preset_id: int, content_item: Optional[dict] = None) -> bool:
+        """
+        Store current or specified content item to a preset slot (1-6).
+        
+        Args:
+            preset_id: Preset slot number (1-6)
+            content_item: Optional dict with keys: source, location, sourceAccount, itemName
+                         If None, stores what's currently playing
+        
+        Returns:
+            True if successful
+        """
+        try:
+            if preset_id < 1 or preset_id > 6:
+                print(f"Invalid preset ID: {preset_id}. Must be 1-6")
+                return False
+            
+            # If no content_item provided, get current now playing
+            if content_item is None:
+                now_playing = self.get_now_playing()
+                if not now_playing or not now_playing.get('source'):
+                    print("Nothing is currently playing")
+                    return False
+                
+                content_item = {
+                    'source': now_playing.get('source', ''),
+                    'location': now_playing.get('location', ''),
+                    'sourceAccount': now_playing.get('sourceAccount', ''),
+                    'itemName': now_playing.get('track', '')
+                }
+            
+            # Build XML for storePreset endpoint
+            import time
+            timestamp = int(time.time())
+            
+            url = f"{self.base_url}/storePreset"
+            headers = {'Content-Type': 'application/xml'}
+            
+            source = content_item.get('source', '')
+            location = content_item.get('location', '')
+            source_account = content_item.get('sourceAccount', '')
+            item_name = content_item.get('itemName', '')
+            
+            # Build ContentItem XML
+            xml_body = f'<Preset id="{preset_id}" createdOn="{timestamp}" updatedOn="{timestamp}">'
+            xml_body += f'<ContentItem source="{escape(source)}"'
+            
+            if location:
+                xml_body += f' location="{escape(location)}"'
+            if source_account:
+                xml_body += f' sourceAccount="{escape(source_account)}"'
+            
+            xml_body += '>'
+            
+            if item_name:
+                xml_body += f'<itemName>{escape(item_name)}</itemName>'
+            
+            xml_body += '</ContentItem></Preset>'
+            
+            response = requests.put(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
+            return response.status_code == 200
+            
+        except Exception as e:
+            print(f"Exception storing preset: {e}")
+            return False
+    
+    def select_preset(self, preset_id: int) -> bool:
+        """
+        Recall and play a preset (1-6).
+        
+        Args:
+            preset_id: Preset slot number (1-6)
+        
+        Returns:
+            True if successful
+        """
+        try:
+            if preset_id < 1 or preset_id > 6:
+                print(f"Invalid preset ID: {preset_id}")
+                return False
+
+            # press_key sendet die rohe PRESET_X-Taste (press+release). send_key
+            # würde am KEYS-Dict scheitern ("preset_1" ist dort nicht enthalten).
+            return self.press_key(f"PRESET_{preset_id}")
+            
+        except Exception as e:
+            print(f"Exception selecting preset: {e}")
+            return False
+    
+    def select_content_item(self, content_item: dict) -> bool:
+        """
+        Play a content item (e.g., TuneIn station, Spotify playlist).
+        
+        Args:
+            content_item: Dictionary with keys: source, location, sourceAccount (optional), itemName (optional), type (optional)
+        
+        Returns:
+            True if successful
+            
+        Example:
+            device.select_content_item({
+                'source': 'TUNEIN',
+                'location': '/v1/playback/station/s125937',
+                'itemName': 'ROCK ANTENNE Heavy Metal'
+            })
+        """
+        try:
+            source = content_item.get('source', '')
+            location = content_item.get('location', '')
+            source_account = content_item.get('sourceAccount', '')
+            item_name = content_item.get('itemName', '')
+            item_type = content_item.get('type', '')
+            is_presetable = content_item.get('isPresetable', '')
+            container_art = content_item.get('containerArt', '')
+            
+            if not source:
+                print("Error: source is required")
+                return False
+            
+            # Build XML
+            url = f"{self.base_url}/select"
+            headers = {'Content-Type': 'application/xml'}
+            
+            xml_body = f'<ContentItem source="{escape(source)}"'
+            
+            # Only add attributes if they have values
+            if item_type:
+                xml_body += f' type="{escape(item_type)}"'
+            if location:
+                xml_body += f' location="{escape(location)}"'
+            # Only add sourceAccount if it has a value
+            if source_account:
+                xml_body += f' sourceAccount="{escape(source_account)}"'
+            if is_presetable:
+                xml_body += f' isPresetable="{escape(str(is_presetable).lower())}"'
+            
+            xml_body += '>'
+            
+            if item_name:
+                xml_body += f'<itemName>{escape(item_name)}</itemName>'
+            
+            if container_art:
+                xml_body += f'<containerArt>{escape(container_art)}</containerArt>'
+            
+            xml_body += '</ContentItem>'
+            
+            print(f"\n📡 Sending to device:")
+            print(f"URL: {url}")
+            print(f"XML: {xml_body}")
+            
+            response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
+            
+            if response.status_code != 200:
+                # If LOCAL_INTERNET_RADIO fails with UNKNOWN_SOURCE_ERROR, try streaming via DLNA
+                if source.upper() == 'LOCAL_INTERNET_RADIO' and '1005' in response.text:
+                    print(f"📻 LOCAL_INTERNET_RADIO nicht verfügbar – spiele via DLNA...")
+
+                    loc = (location or '').strip()
+                    low = loc.lower()
+                    if not loc:
+                        print("❌ Keine Stream-URL (location) angegeben")
+                        return False
+
+                    if 'radiotime.com' in low or 'tunein' in low or 'opml' in low:
+                        # Echte TuneIn-Guide-URL -> zur tatsächlichen Stream-URL auflösen
+                        tunein_url = loc if 'tune.ashx' in low else f"http://opml.radiotime.com/Tune.ashx?id={loc.split('/')[-1]}"
+                        stream_url = self.resolve_tunein_url(tunein_url)
+                    else:
+                        # Bereits eine direkte Stream-URL -> unverändert abspielen
+                        print(f"🎯 Direkte Stream-URL: {loc}")
+                        stream_url = loc
+
+                    if not stream_url:
+                        print("❌ Konnte Stream-URL nicht ermitteln")
+                        return False
+                    
+                    # Play via DLNA
+                    return self.play_url_dlna(
+                        url=stream_url,
+                        track=item_name if item_name else "Radio Station",
+                        artist="TuneIn Radio",
+                        album="Internet Radio"
+                    )
+                
+                # For other errors, show the response
+                print(f"Response status: {response.status_code}")
+                print(f"Response body: {response.text}")
+            
+            return response.status_code == 200
+            
+        except Exception as e:
+            print(f"Exception selecting content: {e}")
+            return False
+    
+    def press_key(self, key: str, sender: str = "Gabbo") -> bool:
+        """
+        Send a key press to the device (simulates remote control button press).
+        
+        Args:
+            key: Key name (e.g., PLAY_PAUSE, PLAY, PAUSE, STOP, NEXT_TRACK, PREV_TRACK, POWER, etc.)
+            sender: Sender identifier (default: "Gabbo")
+        
+        Returns:
+            True if successful
+        """
+        try:
+            url = f"{self.base_url}/key"
+            headers = {'Content-Type': 'application/xml'}
+            
+            # Send press
+            press_xml = f'<key state="press" sender="{escape(sender)}">{escape(key)}</key>'
+            response = requests.post(url, data=press_xml, headers=headers, timeout=self.timeout, verify=False)
+            if response.status_code != 200:
+                print(f"Key press failed: {response.status_code} - {response.text}")
+                return False
+            
+            # Send release
+            release_xml = f'<key state="release" sender="{escape(sender)}">{escape(key)}</key>'
+            response = requests.post(url, data=release_xml, headers=headers, timeout=self.timeout, verify=False)
+            
+            return response.status_code == 200
+            
+        except Exception as e:
+            print(f"Exception pressing key: {e}")
+            return False
+    
+    def play_pause(self) -> bool:
+        """Send PLAY_PAUSE key to device."""
+        return self.press_key("PLAY_PAUSE")
+    
+    def play(self) -> bool:
+        """Send PLAY key to device."""
+        return self.press_key("PLAY")
+    
+    def pause(self) -> bool:
+        """Send PAUSE key to device."""
+        return self.press_key("PAUSE")
+    
+    def stop(self) -> bool:
+        """Send STOP key to device."""
+        return self.press_key("STOP")
+    
+    def power_toggle(self) -> bool:
+        """Send POWER key to toggle device power."""
+        return self.press_key("POWER")
+    
+    def search_tunein(self, query: str, max_results: int = 20) -> List[dict]:
+        """
+        Search TuneIn for radio stations using TuneIn's public API.
+        
+        Args:
+            query: Search query (station name, genre, location)
+            max_results: Maximum number of results to return
+        
+        Returns:
+            List of dicts with keys: name, location, image (optional), description (optional)
+        """
+        try:
+            from urllib.parse import quote
+            
+            # Use TuneIn's public OPML API
+            tunein_api = "http://opml.radiotime.com/Search.ashx"
+            params = {
+                'query': query,
+                'render': 'json'
+            }
+            
+            response = requests.get(tunein_api, params=params, timeout=10)
+            
+            if response.status_code != 200:
+                print(f"TuneIn search failed with status {response.status_code}")
+                return []
+            
+            # Parse JSON response
+            data = response.json()
+            print(f"\n🔍 TuneIn API Response for '{query}':")
+            print(f"Response keys: {list(data.keys())}")
+            
+            results = []
+            
+            # TuneIn returns nested structure: body -> outline array
+            body = data.get('body', [])
+            print(f"Found {len(body)} items in body")
+            
+            for item in body:
+                print(f"\nItem type: {item.get('type')}, text: {item.get('text')}")
+                print(f"Item keys: {list(item.keys())}")
+                
+                # Each item is either a category or a station
+                if item.get('type') == 'audio':
+                    # This is a station
+                    guide_id = item.get('guide_id', '')
+                    
+                    print(f"  guide_id: {guide_id}")
+                    
+                    # Convert guide_id to SoundTouch location format
+                    if not guide_id:
+                        print("  Skipping: no guide_id")
+                        continue
+                    
+                    location = f"/v1/playback/station/{guide_id}"
+                    
+                    station = {
+                        'name': item.get('text', ''),
+                        'location': location,
+                        'source': 'LOCAL_INTERNET_RADIO',
+                        # Do NOT set 'type' or 'sourceAccount' for LOCAL_INTERNET_RADIO
+                        'isPresetable': 'true'
+                    }
+                    
+                    print(f"  Using location: {station['location']}")
+                    
+                    # Optional fields
+                    image = item.get('image')
+                    if image:
+                        station['image'] = image
+                        station['containerArt'] = image
+                    
+                    subtext = item.get('subtext')
+                    if subtext:
+                        station['description'] = subtext
+                    
+                    if station['name'] and station['location']:
+                        results.append(station)
+                        
+                    if len(results) >= max_results:
+                        break
+            
+            return results
+            
+        except Exception as e:
+            print(f"Exception searching TuneIn: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def browse_tunein_local(self, location: str = 'c100002030') -> List[dict]:
+        """
+        Browse TuneIn categories (works, unlike search).
+        
+        Args:
+            location: TuneIn location code
+                     c100002030 = German local radio
+                     c100000088 = Pop music
+                     c100000089 = Rock music
+                     Default: German local stations
+        
+        Returns:
+            List of stations with name, location, source
+        """
+        try:
+            url = f"{self.base_url}/navigate"
+            params = {
+                'source': 'LOCAL_INTERNET_RADIO',
+                'location': location
+            }
+            
+            response = requests.get(url, params=params, timeout=self.timeout, verify=False)
+            
+            if response.status_code != 200:
+                print(f"Browse failed with status {response.status_code}")
+                return []
+            
+            # Parse XML response
+            root = ET.fromstring(response.text)
+            results = []
+            
+            # Look for <item> or <station> elements
+            for item in root.findall('.//item') + root.findall('.//station'):
+                station = {
+                    'name': item.get('name', ''),
+                    'location': item.get('location', ''),
+                    'source': item.get('source', 'LOCAL_INTERNET_RADIO')
+                }
+                
+                # Optional fields
+                image = item.get('image')
+                if image:
+                    station['image'] = image
+                
+                description = item.get('text')
+                if description:
+                    station['description'] = description
+                
+                if station['name'] and station['location']:
+                    results.append(station)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Exception browsing TuneIn: {e}")
+            return []
+    
+    def resolve_tunein_url(self, tunein_url: str) -> str:
+        """
+        Resolve a TuneIn URL (http://opml.radiotime.com/Tune.ashx?id=...) to the actual stream URL.
+        
+        Args:
+            tunein_url: TuneIn Tune.ashx URL
+        \n        Returns:
+            The actual stream URL, or None if resolution failed
+        """
+        try:
+            # Follow redirects to get the actual stream URL
+            response = requests.get(tunein_url, allow_redirects=True, timeout=10)
+            
+            # The final URL after redirects is the stream URL
+            stream_url = response.url
+            print(f"✓ Resolved TuneIn URL: {tunein_url} -> {stream_url}")
+            return stream_url
+            
+        except Exception as e:
+            print(f"Exception resolving TuneIn URL: {e}")
+            return None
+    
+    def check_tunein_available(self) -> Dict[str, bool]:
+        """
+        Check if TUNEIN/LOCAL_INTERNET_RADIO is available and active on this device.
+        
+        Returns:
+            Dict with 'in_sources' (active), 'is_available' (potentially available), 
+            'has_local_radio' (LOCAL_INTERNET_RADIO available), 'method' (which source to use)
+        """
+        result = {
+            'in_sources': False, 
+            'is_available': False,
+            'has_local_radio': False,
+            'method': None  # 'TUNEIN' or 'LOCAL_INTERNET_RADIO'
+        }
+        
+        try:
+            # Check if TUNEIN or LOCAL_INTERNET_RADIO is in active sources
+            response = requests.get(f"http://{self.ip}:{self.port}/sources", timeout=self.timeout)
+            if response.status_code == 200:
+                root = ET.fromstring(response.content)
+                sources = [s.get('source') for s in root.findall('.//sourceItem')]
+                
+                if 'LOCAL_INTERNET_RADIO' in sources:
+                    result['in_sources'] = True
+                    result['method'] = 'LOCAL_INTERNET_RADIO'
+                
+            
+            # Check if TUNEIN/LOCAL_INTERNET_RADIO is available in serviceAvailability
+            response = requests.get(f"http://{self.ip}:{self.port}/serviceAvailability", timeout=self.timeout)
+            if response.status_code == 200:
+                root = ET.fromstring(response.content)
+                for service in root.findall('.//service'):
+                    stype = service.get('type')
+                    if stype == 'LOCAL_INTERNET_RADIO' and service.get('isAvailable') == 'true':
+                        result['is_available'] = True
+                    elif stype == 'LOCAL_INTERNET_RADIO' and service.get('isAvailable') == 'true':
+                        result['has_local_radio'] = True
+                        if not result['method']:
+                            result['method'] = 'LOCAL_INTERNET_RADIO'
+        except Exception as e:
+            print(f"Error checking TUNEIN availability: {e}")
+        
+        return result
+    
+    def try_activate_tunein(self) -> bool:
+        """
+        Attempt to activate TUNEIN service by various methods.
+        
+        This tries multiple approaches:
+        1. Store a TUNEIN preset (sometimes activates service)
+        2. Try to play a TUNEIN station (error may trigger activation)
+        3. Send service availability check
+        
+        Returns:
+            True if TUNEIN is now in sources list
+            
+        Note: If this fails, TUNEIN is available but needs one-time activation.
+        Since the official SoundTouch app is being discontinued, users should
+        activate it once before the app becomes unavailable, or use DLNA fallback.
+        """
+        print(f"Attempting to activate TUNEIN on {self.ip}...")
+        
+        # Check current status
+        status_before = self.check_tunein_available()
+        if status_before['in_sources']:
+            print("TUNEIN already active!")
+            return True
+        
+        if not status_before['is_available']:
+            print("TUNEIN not available on this device (serviceAvailability check failed)")
+            return False
+        
+        # Method 1: Store a TuneIn preset (BBC Radio 1)
+        print("Method 1: Storing TUNEIN preset...")
+        try:
+            preset_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<preset id="1">
+    <ContentItem source="TUNEIN" type="stationurl" location="/v1/playback/station/s24939" 
+                 sourceAccount="" isPresetable="true">
+        <itemName>BBC Radio 1</itemName>
+    </ContentItem>
+</preset>'''
+            response = requests.put(
+                f"http://{self.ip}:{self.port}/storePreset",
+                headers={'Content-Type': 'application/xml'},
+                data=preset_xml,
+                timeout=self.timeout
+            )
+            print(f"  Preset store response: {response.status_code}")
+        except Exception as e:
+            print(f"  Preset store failed: {e}")
+        
+        # Check if it worked
+        import time
+        time.sleep(1)
+        status_after = self.check_tunein_available()
+        if status_after['in_sources']:
+            print("✓ TUNEIN activated via preset storage!")
+            return True
+        
+        # Method 2: Try to play a TUNEIN station directly
+        print("Method 2: Attempting TUNEIN playback...")
+        try:
+            select_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<ContentItem source="TUNEIN" type="stationurl" location="/v1/playback/station/s24939" 
+             sourceAccount="" isPresetable="true">
+    <itemName>BBC Radio 1</itemName>
+</ContentItem>'''
+            response = requests.post(
+                f"http://{self.ip}:{self.port}/select",
+                headers={'Content-Type': 'application/xml'},
+                data=select_xml,
+                timeout=self.timeout
+            )
+            print(f"  Play attempt response: {response.status_code}")
+            
+            # Even if it fails with error, check if service got activated
+            time.sleep(1)
+            status_after = self.check_tunein_available()
+            if status_after['in_sources']:
+                print("✓ TUNEIN activated via playback attempt!")
+                return True
+        except Exception as e:
+            print(f"  Play attempt failed: {e}")
+        
+        # Method 3: Press preset button (sometimes triggers activation)
+        print("Method 3: Simulating preset button press...")
+        try:
+            for state in ['press', 'release']:
+                key_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<key state="{state}" sender="Gabbo">PRESET_1</key>'''
+                requests.post(
+                    f"http://{self.ip}:{self.port}/key",
+                    headers={'Content-Type': 'application/xml'},
+                    data=key_xml,
+                    timeout=self.timeout
+                )
+            
+            time.sleep(2)
+            status_after = self.check_tunein_available()
+            if status_after['in_sources']:
+                print("✓ TUNEIN activated via preset button!")
+                return True
+        except Exception as e:
+            print(f"  Button press failed: {e}")
+        
+        print("✗ All activation methods failed.")
+        print("\nTUNEIN is marked as 'available' but not in active sources.")
+        print("This requires one-time activation via the official Bose SoundTouch app.")
+        print("IMPORTANT: The official app is being discontinued - activate TUNEIN now!")
+        print("\nAlternatively: DLNA fallback will work automatically for playback,")
+        print("but presets won't be able to recall TuneIn stations natively.")
+        
+        return False
+    
     def play_url_dlna(self, url: str, artist: str = "Unknown Artist", album: str = "Unknown Album", 
-                      track: str = "Unknown Track", dlna_server_ip: str = None) -> bool:
+                      track: str = "Unknown Track", dlna_server_ip: str = None, proxy_https: bool = True) -> bool:
         """
         Play media from URL via DLNA/UPNP (port 8091).
         Uses DLNAHelper to properly handle SOAP requests with metadata.
         
         Args:
-            url: HTTP URL to media file (DLNA does NOT support HTTPS!)
+            url: HTTP or HTTPS URL to media file
             artist: Artist name for metadata
             album: Album name for metadata
             track: Track name for metadata
             dlna_server_ip: DLNA server IP (optional, for future extensions)
+            proxy_https: If True, automatically proxy HTTPS URLs through HTTP (default: True)
             
         Returns:
             True if successful
             
         Note: This sends a SOAP request to the DLNA AVTransport service,
               which is the correct way to play UPNP/DLNA content.
+              HTTPS URLs are automatically proxied to HTTP if proxy_https=True.
         """
-        if not url or not url.startswith("http://"):
+        # Normalize and validate URL early
+        try:
+            url = url.strip()
+        except Exception:
+            pass
+        if isinstance(url, bytes):
+            try:
+                url = url.decode('utf-8')
+            except Exception:
+                url = url.decode('latin-1', errors='ignore') if hasattr(url, 'decode') else url
+        if not isinstance(url, str):
+            url = str(url)
+        if not url or not url.startswith(("http://", "https://")):
+            self._set_error(f"play_url_dlna requires http:// or https:// URL (got: {url[:80] if isinstance(url,str) else url})")
             return False
         
+        # Handle HTTPS URLs by proxying them
+        original_url = url
+        if url.startswith("https://") and proxy_https:
+            try:
+                from https_proxy import get_proxy_instance
+                import socket
+                
+                # Get local IP
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+                
+                # Start proxy if not running
+                proxy = get_proxy_instance()
+                if not proxy.running:
+                    proxy.start()
+                
+                # Convert HTTPS URL to proxied HTTP URL
+                url = proxy.get_proxied_url(url, local_ip)
+                print(f"🔒 Proxying HTTPS stream: {original_url[:60]}...")
+                print(f"📡 Proxy URL: {url[:80]}...")
+            except Exception as e:
+                print(f"⚠️ HTTPS proxy failed, trying direct: {e}")
+                # Fall back to direct URL (may not work on all devices)
+        
+        # Extract stream metadata before playing (for radio streams)
+        stream_meta = self._extract_stream_metadata(url, timeout=3)
+        
+        # Use stream metadata if available and better than defaults
+        if stream_meta.get('station_name') and track in ('Unknown Track', 'Unknown', ''):
+            track = stream_meta['station_name']
+        if stream_meta.get('genre') and album in ('Unknown Album', 'Unknown', ''):
+            album = f"Internet Radio - {stream_meta['genre']}"
+        elif album in ('Unknown Album', 'Unknown', ''):
+            album = "Internet Radio"
+        
         try:
-            # Detect MIME type from URL extension
+            # Detect MIME type from URL extension or parameters
+            # Note: For YouTube, the proxy will convert MP4→MP3, so we always use audio/mpeg
             mime = "audio/mpeg"
+            lowered_original = original_url.lower()
             lowered = url.lower()
-            if lowered.endswith(".flac"):
+            
+            # Check original URL for YouTube/Google Video
+            # The HTTPS proxy now converts MP4 → MP3 on-the-fly for YouTube
+            is_youtube = 'googlevideo.com' in lowered_original or 'youtube.com' in lowered_original
+            
+            if is_youtube:
+                # YouTube streams are converted to MP3 by the proxy
+                mime = "audio/mpeg"
+                print(f"🎬 YouTube detected - proxy will convert MP4 → MP3")
+            elif lowered.endswith(".flac"):
                 mime = "audio/flac"
             elif lowered.endswith(".wav"):
                 mime = "audio/wav"
@@ -672,12 +1527,19 @@ class SoundTouchController:
             elif lowered.endswith(".ogg") or lowered.endswith(".oga"):
                 mime = "audio/ogg"
             
-            # Build protocol info with DLNA extensions for MP3
+            # Build protocol info with DLNA extensions
             dlna_flags = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01500000000000000000000000000000"
-            protocol_info = f"http-get:*:{mime}:*"
+            
             if mime == "audio/mpeg":
                 pn = "DLNA.ORG_PN=MP3"
-                protocol_info = f"http-get:*:{mime};{pn};{dlna_flags}"
+                protocol_info = f"http-get:*:{mime}:{pn};{dlna_flags}"
+            elif mime == "audio/mp4":
+                # MP4/AAC with full DLNA profile
+                pn = "DLNA.ORG_PN=AAC_ISO_320"
+                protocol_info = f"http-get:*:{mime}:{pn};{dlna_flags}"
+            else:
+                # Generic protocol info for other formats with DLNA flags
+                protocol_info = f"http-get:*:{mime}:{dlna_flags}"
             
             # Use DLNAHelper to send SOAP commands
             dlna = DLNAHelper(dlna_server_ip=self.ip, device_ip=self.ip, device_dlna_port=self.dlna_port)
@@ -685,18 +1547,137 @@ class SoundTouchController:
             # Set URI with metadata
             if not dlna.set_av_transport_uri(url, title=track, protocol_info=protocol_info,
                                             artist=artist, album=album):
+                self._set_error("play_url_dlna set_av_transport_uri failed")
                 return False
             
             # Send Play
             if not dlna.play():
+                self._set_error("play_url_dlna play failed")
                 return False
             
             print(f"✅ DLNA playback started: {track} by {artist}")
+            # Store override so UI can show metadata even if /now_playing is empty/invalid
+            # Also store original URL for metadata updates
+            self.override_nowplaying = {
+                'source': 'UPNP',  # UPnP is the correct source for DLNA streams
+                'sourceAccount': '',
+                'track': track,
+                'artist': artist,
+                'album': album,
+                'duration': 0,
+                'position': 0,
+                'playStatus': 'PLAY_STATE',
+                'stream_url': original_url,  # Store original URL for metadata updates
+                'station_name': stream_meta.get('station_name', ''),
+                'genre': stream_meta.get('genre', ''),
+                'bitrate': stream_meta.get('bitrate', ''),
+            }
+            self._set_error('')
+            
+            # Start metadata update thread for internet radio
+            self._start_metadata_updater()
+            
             return True
                 
         except Exception as e:
-            print(f"❌ DLNA exception: {e}")
+            self._set_error(f"play_url_dlna exception: {e}")
             return False
+    
+    def get_stream_metadata(self) -> Optional[dict]:
+        """
+        Get current metadata from internet radio stream (if playing via proxy).
+        
+        Returns:
+            dict with track, artist, album, genre, bitrate, etc. or None
+        """
+        if not self.override_nowplaying:
+            return None
+        
+        stream_url = self.override_nowplaying.get('stream_url')
+        if not stream_url:
+            return None
+        
+        try:
+            from https_proxy import get_proxy_instance
+        except ImportError:
+            # Disable further metadata attempts if proxy module not available
+            self.override_nowplaying['stream_url'] = None
+            return None
+        try:
+            proxy = get_proxy_instance()
+            metadata = proxy.get_stream_metadata(stream_url)
+            
+            if metadata and metadata.get('track'):
+                # Update override with fresh metadata
+                self.override_nowplaying['track'] = metadata.get('track', self.override_nowplaying['track'])
+                self.override_nowplaying['artist'] = metadata.get('artist', self.override_nowplaying['artist'])
+                self.override_nowplaying['album'] = metadata.get('album', self.override_nowplaying['album'])
+                
+                return metadata
+        except Exception as e:
+            print(f"⚠️ Could not get stream metadata: {e}")
+        
+        return None
+    
+    def update_nowplaying_from_stream(self) -> bool:
+        """
+        Update override_nowplaying with fresh stream metadata.
+        Call this periodically when playing internet radio.
+        
+        Returns:
+            True if metadata was updated, False otherwise
+        """
+        metadata = self.get_stream_metadata()
+        if metadata and metadata.get('last_update', 0) > 0:
+            # Fresh metadata available
+            track = metadata.get('track', '')
+            artist = metadata.get('artist', '')
+            
+            # Check if metadata actually changed
+            if track and artist:
+                old_track = self.override_nowplaying.get('track', '') if self.override_nowplaying else ''
+                old_artist = self.override_nowplaying.get('artist', '') if self.override_nowplaying else ''
+                
+                if track != old_track or artist != old_artist:
+                    print(f"🔄 Updated stream metadata: {artist} - {track}")
+                    return True
+        
+        return False
+    
+    def _start_metadata_updater(self):
+        """
+        Start background thread to update metadata for internet radio streams.
+        """
+        if hasattr(self, '_metadata_thread') and self._metadata_thread and self._metadata_thread.is_alive():
+            return  # Already running
+
+        # If metadata proxy module missing, skip starting thread
+        try:
+            import https_proxy  # noqa: F401
+        except ImportError:
+            return
+        
+        import threading
+        
+        def update_loop():
+            import time
+            while True:
+                time.sleep(10)  # Update every 10 seconds
+                
+                # Check if still playing
+                if not self.override_nowplaying or not self.override_nowplaying.get('stream_url'):
+                    break
+                
+                # Update metadata
+                try:
+                    self.update_nowplaying_from_stream()
+                except Exception as e:
+                    print(f"⚠️ Metadata update error: {e}")
+                    break
+        
+        self._metadata_thread = threading.Thread(target=update_loop, daemon=True)
+        self._metadata_thread.start()
+        print("🔄 Started metadata updater thread")
     
     def get_presets(self) -> Optional[List[dict]]:
         """Get list of presets."""
@@ -944,10 +1925,20 @@ class SoundTouchController:
         try:
             url = f"{self.base_url}/setZone"
             headers = {'Content-Type': 'application/xml'}
-            
-            members_xml = ''.join([f'<member ipaddress="{ip}">{mac}</member>' for ip, mac in members])
+
+            # Laut Bose-API muss der Master selbst als erster <member> enthalten
+            # sein. members enthält i.d.R. nur die Slaves -> Master voranstellen
+            # (und Duplikate vermeiden).
+            all_members = [(self.ip, master_mac)]
+            for ip, mac in members:
+                if mac and mac.upper() != master_mac.upper():
+                    all_members.append((ip, mac))
+
+            members_xml = ''.join(
+                f'<member ipaddress="{ip}">{mac}</member>' for ip, mac in all_members
+            )
             xml_body = f'<zone master="{master_mac}" senderIPAddress="{self.ip}">{members_xml}</zone>'
-            
+
             response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
             return response.status_code == 200
         except Exception:
@@ -1009,8 +2000,8 @@ class SoundTouchController:
         try:
             url = f"{self.base_url}/name"
             headers = {'Content-Type': 'application/xml'}
-            xml_body = f'<name>{name}</name>'
-            
+            xml_body = f'<name>{escape(name)}</name>'
+
             response = requests.post(url, data=xml_body, headers=headers, timeout=self.timeout, verify=False)
             return response.status_code == 200
         except Exception:
@@ -1346,10 +2337,13 @@ class SoundTouchGroupManager:
                         if not master_device:
                             continue
                         
-                        # Find slave devices by MAC
+                        # Find slave devices by MAC (Master ist ebenfalls Member,
+                        # zählt aber nicht als Slave -> überspringen)
                         slave_devices = []
                         for member in zone_info.get('members', []):
                             member_mac = member.get('macaddr', '')
+                            if member_mac.upper() == master_mac.upper():
+                                continue
                             for dev in self.devices:
                                 if dev['mac'] == member_mac:
                                     slave_devices.append(dev)

@@ -1,16 +1,35 @@
+# Simple SoundTouch Controller Requirements
+
+# GUI Framework
+PyQt6>=6.4.0
+
+# HTTP Requests
 requests>=2.28.0
-fastapi>=0.95.0
-uvicorn>=0.21.0
-pysmb>=1.2.9.1
-aiofiles>=23.0.0
-websocket-client>=1.0.0
+fastapi
+uvicorn
+mitmproxy
+
+# WebSocket client for Bose notifications and control envelope
+websocket-client>=1.7.0
+
+# Netzwerk-Interface-Erkennung (Discovery, WLAN-Setup)
 netifaces>=0.11.0
 
-# GUI Dependencies
-# For Linux/Windows GUI (PyQt5)
-PyQt5>=5.15.0
-PyQt5-multimedia>=5.15.0  # For media playback
+# FFmpeg wird für System-Audio-Capture benötigt und hier GEBÜNDELT mitgeliefert:
+# imageio-ffmpeg bringt eine passende ffmpeg-Binary mit (Windows/Linux/macOS),
+# sodass keine separate Systeminstallation nötig ist. Die App findet sie
+# automatisch (system_audio_capture.SystemAudioCapture._find_ffmpeg).
+imageio-ffmpeg>=0.5.0
 
-# For Android GUI (Kivy)
-kivy>=2.2.0
-buildozer>=1.5.0  # For building Android APK
+# Windows: System-Ausgang per WASAPI-Loopback aufnehmen (ohne 'Stereo Mix').
+# Nur auf Windows relevant/installierbar.
+PyAudioWPatch>=0.2.12 ; sys_platform == "win32"
+
+# Optional: ein systemweites ffmpeg (falls vorhanden) wird bevorzugt genutzt.
+# - Debian/Ubuntu: sudo apt install ffmpeg
+# - Fedora: sudo dnf install ffmpeg
+# - Arch: sudo pacman -S ffmpeg
+# - Windows: winget install Gyan.FFmpeg  (oder https://ffmpeg.org/)
+#
+# Audio Capture (Linux) braucht zusätzlich einen Audio-Server:
+# - pulseaudio-utils (PulseAudio) oder pipewire (PipeWire)

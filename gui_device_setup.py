@@ -1,20 +1,72 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 GUI Dialog für WiFi-Setup von neuen Bose SoundTouch Geräten
 """
 
 import sys
+import os
 import socket
-from PyQt5.QtWidgets import (
+import subprocess
+from pathlib import Path
+from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QComboBox, QTextEdit, QProgressBar, QGroupBox,
     QMessageBox, QApplication
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
-from PyQt5.QtGui import QFont
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
+from PyQt6.QtGui import QFont
 from soundtouch_lib import SoundTouchController, SoundTouchDiscovery
 import netifaces
 import time
+import platform_wifi
+
+
+def find_removable_drives():
+    """Liefert schreibbare Wechseldatenträger-Mountpunkte, plattformübergreifend.
+
+    Windows: erkennt Wechseldatenträger anhand von GetDriveTypeW (== DRIVE_REMOVABLE).
+    Linux/macOS: übliche Mountverzeichnisse unter /media, /run/media, /mnt, /Volumes.
+    """
+    mounts = []
+    if sys.platform.startswith("win"):
+        import ctypes
+        import string
+
+        DRIVE_REMOVABLE = 2
+        try:
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        except Exception:
+            bitmask = 0
+        for i, letter in enumerate(string.ascii_uppercase):
+            if not (bitmask >> i) & 1:
+                continue
+            root = f"{letter}:\\"
+            try:
+                if ctypes.windll.kernel32.GetDriveTypeW(root) == DRIVE_REMOVABLE and os.access(root, os.W_OK):
+                    mounts.append(root)
+            except Exception:
+                continue
+    else:
+        import getpass
+
+        try:
+            user = os.environ.get("USER") or getpass.getuser()
+        except Exception:
+            user = "user"
+        bases = [f"/media/{user}", f"/run/media/{user}", "/media", "/mnt", "/Volumes"]
+        for base in bases:
+            if not os.path.isdir(base):
+                continue
+            try:
+                for name in os.listdir(base):
+                    path = os.path.join(base, name)
+                    if os.path.isdir(path) and os.path.ismount(path) and os.access(path, os.W_OK):
+                        if path not in mounts:
+                            mounts.append(path)
+            except (PermissionError, OSError):
+                continue
+    return mounts
 
 
 class WiFiScanWorker(QObject):
@@ -128,40 +180,42 @@ class ConnectSetupWiFiWorker(QObject):
         super().__init__()
     
     def run(self):
-        """Versuche Setup-WLAN-Verbindung"""
-        import subprocess
-        self.status_message.emit("🤖 Versuche automatisch ins Setup-WLAN zu wechseln...")
+        """Versuche automatisch ins Setup-WLAN zu wechseln (plattformübergreifend)."""
+        self.status_message.emit(
+            f"🤖 Versuche automatisch ins Setup-WLAN zu wechseln… ({platform_wifi.backend_name()})"
+        )
         try:
-            # List nearby WiFi networks with SSID and SIGNAL
-            out = subprocess.check_output(["nmcli", "-t", "-f", "SSID,SIGNAL", "dev", "wifi", "list"], text=True)
+            # Setup-SSIDs des Speakers enthalten typischerweise 'Bose'/'SoundTouch'.
+            # Windows liefert gecachte Scan-Ergebnisse -> frischen Scan anstoßen
+            # und einige Male wiederholen, bis der AP auftaucht.
             candidates = []
-            for line in out.splitlines():
-                if not line:
-                    continue
-                parts = line.split(":")
-                ssid = parts[0].strip()
-                # SIGNAL may be empty; default to 0
-                try:
-                    signal = int(parts[1]) if len(parts) > 1 and parts[1].strip().isdigit() else 0
-                except Exception:
-                    signal = 0
-                if ssid and ("Bose" in ssid or "SoundTouch" in ssid):
-                    candidates.append((ssid, signal))
+            for attempt in range(6):
+                platform_wifi.request_scan()
+                time.sleep(3)
+                candidates = platform_wifi.scan_ssids(name_filter="Bose")
+                candidates += [s for s in platform_wifi.scan_ssids(name_filter="SoundTouch")
+                               if s not in candidates]
+                if candidates:
+                    break
+                self.status_message.emit(
+                    f"   Setup-WLAN noch nicht sichtbar (Versuch {attempt + 1}/6)…"
+                )
             if not candidates:
-                self.failed.emit("Kein Setup-WLAN gefunden (SSID enthält 'Bose'/'SoundTouch').")
+                self.failed.emit(
+                    "Kein Setup-WLAN gefunden (SSID mit 'Bose'/'SoundTouch'). "
+                    "Bitte manuell ins Setup-WLAN wechseln – der Wizard erkennt den Wechsel automatisch."
+                )
                 return
-            # Pick strongest candidate
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            target_ssid = candidates[0][0]
-            self.status_message.emit(f"🔁 Verbinde PC mit Setup-WLAN '{target_ssid}'...")
-            # Setup SSIDs are typically open; try without password
-            subprocess.check_call(["nmcli", "dev", "wifi", "connect", target_ssid])
-            self.connected.emit(target_ssid)
-        except FileNotFoundError:
-            self.failed.emit("'nmcli' nicht gefunden. Bitte manuell ins Setup-WLAN wechseln.")
-        except subprocess.CalledProcessError as e:
-            self.failed.emit(f"Setup-WLAN-Verbindung fehlgeschlagen: {e}")
-        except Exception as e:
+
+            target_ssid = candidates[0]
+            self.status_message.emit(f"🔁 Verbinde PC mit Setup-WLAN '{target_ssid}'…")
+            # Setup-Netze sind offen -> ohne Passwort verbinden
+            ok, msg = platform_wifi.connect(target_ssid, password=None, confirm_timeout=20)
+            if ok:
+                self.connected.emit(target_ssid)
+            else:
+                self.failed.emit(f"Automatischer Wechsel fehlgeschlagen: {msg}")
+        except Exception as e:  # noqa: BLE001
             self.failed.emit(f"Unerwarteter Fehler: {e}")
 
 
@@ -223,6 +277,201 @@ class DiscoverDeviceWorker(QObject):
             self.devices_found.emit([])
 
 
+class DeviceDeployWorker(QObject):
+    """Worker, der das On-Device-Setup per SSH installiert."""
+
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)  # success, error_msg
+
+    def __init__(self, device_ip: str, source_root: Path, ssh_wait_timeout: int = 180):
+        super().__init__()
+        self.device_ip = device_ip
+        self.source_root = Path(source_root)
+        self.ssh_wait_timeout = ssh_wait_timeout
+        # Gemeinsame ssh/scp-Optionen. UserKnownHostsFile=os.devnull verhindert,
+        # dass ein nach Factory-Reset geänderter Host-Key den Verbindungsaufbau
+        # still blockiert ("REMOTE HOST IDENTIFICATION HAS CHANGED").
+        self._common_opts = [
+            "-o", "HostKeyAlgorithms=+ssh-rsa",
+            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", f"UserKnownHostsFile={os.devnull}",
+            "-o", "ConnectTimeout=8",
+        ]
+        self.ssh_base = ["ssh"] + self._common_opts + [f"root@{self.device_ip}"]
+        # Konsolenfenster unter Windows unterdrücken
+        self._no_window = 0x08000000 if sys.platform.startswith("win") else 0
+
+    def _wait_for_ssh(self, timeout: int) -> bool:
+        """Wartet, bis TCP-Port 22 auf dem Gerät erreichbar ist (SSH aktiv)."""
+        deadline = time.time() + timeout
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                with socket.create_connection((self.device_ip, 22), timeout=3):
+                    self.progress.emit(f"SSH-Port offen (Versuch {attempt}).")
+                    return True
+            except OSError:
+                remaining = int(deadline - time.time())
+                self.progress.emit(f"Warte auf SSH-Start… (Port 22 noch zu, ~{remaining}s verbleibend)")
+                time.sleep(3)
+        return False
+
+    def _ssh(self, command: str) -> str:
+        cmd = self.ssh_base + [command]
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, creationflags=self._no_window)
+        return out.decode(errors="ignore")
+
+    def _copy_file(self, local: Path, remote_path: str) -> None:
+        """Kopiert eine Datei per 'cat' über SSH (statt scp).
+
+        Die Bose-Box nutzt Dropbear ohne sftp-server; moderner OpenSSH-scp
+        läuft aber über SFTP und scheitert daher (Exit 255). 'cat > datei'
+        über die SSH-Verbindung braucht nur eine Shell und ist robust.
+        Zeilenenden werden für Text-/Skriptdateien auf LF normalisiert,
+        damit die Skripte auf dem Gerät nicht an Windows-CRLF scheitern.
+        """
+        data = local.read_bytes()
+        if local.suffix.lower() in (".sh", ".conf", ".local", ".txt", ""):
+            data = data.replace(b"\r\n", b"\n")
+        cmd = self.ssh_base + [f"cat > '{remote_path}'"]
+        proc = subprocess.run(
+            cmd,
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            creationflags=self._no_window,
+        )
+        if proc.returncode != 0:
+            out = proc.stdout.decode(errors="ignore") if proc.stdout else ""
+            raise subprocess.CalledProcessError(proc.returncode, cmd, output=out.encode())
+
+    def run(self):
+        remounted_rw = False
+        try:
+            self.progress.emit("Warte, bis SSH auf dem Gerät aktiv ist…")
+            if not self._wait_for_ssh(self.ssh_wait_timeout):
+                self.finished.emit(
+                    False,
+                    "SSH wurde nicht rechtzeitig aktiv. Steckt der USB-Stick mit der Datei "
+                    "'remote_services' im Gerät, und ist das Gerät eingeschaltet?",
+                )
+                return
+            # Offener Port heißt noch nicht, dass der Login klappt – kurz verifizieren.
+            self.progress.emit("Prüfe SSH-Login...")
+            self._ssh("echo ok")
+
+            mount_state = self._ssh("mount | grep ' on / '")
+            if " ro," in mount_state or "(ro," in mount_state:
+                self.progress.emit("/ ist readonly, remounte rw...")
+                self._ssh("mount -o remount,rw /")
+                remounted_rw = True
+
+            self.progress.emit("Lege /mnt/nv an...")
+            self._ssh("mkdir -p /mnt/nv")
+
+            file_map = {
+                "preset_handler_daemon.sh": "/mnt/nv/preset_handler_daemon.sh",
+                "rhino_preset_monitor.sh": "/mnt/nv/rhino_preset_monitor.sh",
+                "key_interceptor_daemon.sh": "/mnt/nv/key_interceptor_daemon.sh",
+                "key_interceptor_cgi.sh": "/mnt/nv/key_interceptor_cgi.sh",
+                "preset_proxy_manager.sh": "/mnt/nv/preset_proxy_manager.sh",
+                "preset_system_init.sh": "/mnt/nv/preset_system_init.sh",
+                "radio_proxy.sh": "/mnt/nv/radio_proxy.sh",
+                "preset_proxies.conf": "/mnt/nv/preset_proxies.conf",
+            }
+
+            for local_name, remote_path in file_map.items():
+                src = self.source_root / local_name
+                if not src.exists():
+                    self.progress.emit(f"Überspringe fehlende Datei: {local_name}")
+                    continue
+                # Bestehende Preset-Config NICHT überschreiben (vom Nutzer per App
+                # konfigurierte Sender bleiben bei einem erneuten Setup erhalten).
+                if local_name == "preset_proxies.conf":
+                    try:
+                        exists = self._ssh(f"[ -f '{remote_path}' ] && echo yes || echo no")
+                        if exists.strip().endswith("yes"):
+                            self.progress.emit("Bestehende preset_proxies.conf bleibt erhalten")
+                            continue
+                    except subprocess.CalledProcessError:
+                        pass
+                self.progress.emit(f"Kopiere {local_name}...")
+                self._copy_file(src, remote_path)
+
+            self._ssh("chmod +x /mnt/nv/*.sh")
+
+            self.progress.emit("Erzeuge rc.local...")
+            rc_local = r"""#!/bin/sh
+# Auto-start custom preset system
+
+# --- Dauerhafter Fernzugriff (SSH/Telnet) OHNE USB-Stick ---
+# rc.local wird beim Boot von /etc/init.d/shelby_local ausgefuehrt.
+# sshd/telnetd starten sonst nur, wenn der USB-Stick den remote_services-
+# Flag setzt. Hier setzen wir den Flag persistent und starten die Dienste.
+touch /tmp/remote_services
+start-stop-daemon --start --exec /usr/sbin/sshd 2>/dev/null
+start-stop-daemon --start --exec /usr/sbin/telnetd 2>/dev/null
+
+# NAT redirect 8090 -> 8089 once
+if ! iptables -t nat -C PREROUTING -p tcp --dport 8090 -j REDIRECT --to-ports 8089 2>/dev/null; then
+    iptables -t nat -I PREROUTING -p tcp --dport 8090 -j REDIRECT --to-ports 8089
+fi
+
+# Start mock Marge server if available
+if [ -x /mnt/update/mock/mock_bose_https_armv7 ]; then
+    if ! pgrep -f "mock_bose_https_armv7" >/dev/null; then
+        /mnt/update/mock/mock_bose_https_armv7 --blueprint /mnt/update/mock/mock_blueprint.json --http :8088 --https :443 >/tmp/mock_marge.log 2>&1 &
+    fi
+fi
+
+# Start preset system
+if [ -x /mnt/nv/preset_system_init.sh ]; then
+    /mnt/nv/preset_system_init.sh start >/tmp/preset_system_init.log 2>&1
+fi
+
+exit 0
+"""
+            self._ssh(
+                "cat > /mnt/nv/rc.local <<'EOF'\n" + rc_local + "\nEOF\nchmod +x /mnt/nv/rc.local"
+            )
+
+            self.progress.emit("Stelle Preset-Config-Platzhalter bereit...")
+            self._ssh(
+                "if [ ! -f /mnt/nv/preset_proxies.conf ]; then echo '# Presets später per GUI setzen' > /mnt/nv/preset_proxies.conf; fi"
+            )
+
+            self.progress.emit("Setze NAT-Regel und starte Dienste...")
+            self._ssh(
+                "iptables -t nat -C PREROUTING -p tcp --dport 8090 -j REDIRECT --to-ports 8089 2>/dev/null || iptables -t nat -I PREROUTING -p tcp --dport 8090 -j REDIRECT --to-ports 8089"
+            )
+            self._ssh(
+                "if [ -x /mnt/update/mock/mock_bose_https_armv7 ]; then pgrep -f mock_bose_https_armv7 >/dev/null || /mnt/update/mock/mock_bose_https_armv7 --blueprint /mnt/update/mock/mock_blueprint.json --http :8088 --https :443 >/tmp/mock_marge.log 2>&1 & fi"
+            )
+            # Preset-System via setsid abgekoppelt starten, damit die Daemons das
+            # Ende der SSH-Session überleben (preset_system_init.sh detacht nicht
+            # selbst; beim Boot läuft es ohne Controlling-Terminal, hier aber schon).
+            self._ssh(
+                "setsid /bin/sh -c '/mnt/nv/preset_system_init.sh restart' "
+                "</dev/null >/tmp/preset_system_init.log 2>&1 & sleep 3"
+            )
+
+            self.finished.emit(True, "")
+        except subprocess.CalledProcessError as exc:
+            err = exc.output.decode(errors="ignore") if exc.output else str(exc)
+            self.finished.emit(False, err)
+        except Exception as exc:  # noqa: BLE001
+            self.finished.emit(False, str(exc))
+        finally:
+            if remounted_rw:
+                try:
+                    self.progress.emit("Setze root-FS zurück auf ro...")
+                    self._ssh("mount -o remount,ro /")
+                except subprocess.CalledProcessError:
+                    pass
+
+
 class NetworkMonitorThread(QThread):
     """Thread zum Überwachen des Netzwerkwechsels"""
     network_changed = pyqtSignal(str, str)  # (interface, ip)
@@ -235,36 +484,17 @@ class NetworkMonitorThread(QThread):
         self.current_iface, self.current_wifi_ip = self._get_wifi_info()
         
     def _get_current_ssid(self):
-        """Aktuelle WLAN SSID ermitteln (nur WLAN)."""
-        try:
-            import subprocess
-            ssid = subprocess.check_output(['iwgetid', '-r'], text=True).strip()
-            return ssid or ""
-        except Exception:
-            return ""
+        """Aktuelle WLAN-SSID ermitteln (plattformübergreifend)."""
+        return platform_wifi.current_ssid()
 
     def _get_wifi_info(self):
-        """Ermittle WLAN-Interface und dessen IPv4-Adresse.
-        Bevorzugt Interfaces mit Präfixen 'wl', 'wlan', 'wlp'.
+        """Ermittle aktives Interface und dessen IPv4-Adresse.
+
+        Interface-namensunabhängig (Default-Route), damit es auch unter
+        Windows funktioniert, wo WLAN-Adapter GUID-Namen tragen.
         """
-        wifi_iface = None
-        wifi_ip = None
-        try:
-            for iface in netifaces.interfaces():
-                # Nur typische WLAN-Interfaces betrachten
-                if not (iface.startswith('wl') or iface.startswith('wlan') or iface.startswith('wlp')):
-                    continue
-                addrs = netifaces.ifaddresses(iface)
-                if netifaces.AF_INET in addrs:
-                    for addr in addrs[netifaces.AF_INET]:
-                        ip = addr.get('addr')
-                        if ip and ip != '127.0.0.1':
-                            wifi_iface = iface
-                            wifi_ip = ip
-                            return wifi_iface, wifi_ip
-        except Exception:
-            pass
-        return wifi_iface or "", wifi_ip or ""
+        iface, ip = platform_wifi.active_ip()
+        return iface or "", ip or ""
     
     def run(self):
         """Überwache Netzwerkwechsel"""
@@ -301,6 +531,7 @@ class DeviceSetupWizard(QDialog):
     STATUS_DISCOVERING = 6
     STATUS_SUCCESS = 7
     STATUS_ERROR = 8
+    STATUS_DEPLOYING = 9
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -310,10 +541,25 @@ class DeviceSetupWizard(QDialog):
         self.status = self.STATUS_IDLE
         self.device_ip = None
         self.device_name = None
+        self.setup_device_id = None
         self.setup_network_ssid = None
         self.home_network_ssid = None
         self.network_monitor = None
         self.ssid_survey_info = {}
+        # Identifiers of the target device (captured in setup mode)
+        self.setup_device_mac = None
+        self.setup_device_serials = set()
+        # Track optional threads for safe shutdown
+        self.find_setup_thread = None
+        self.wifi_config_thread = None
+        self.wifi_scan_thread = None
+        self.reconnection_thread = None
+        self.connect_setup_thread = None
+        self.discover_thread = None
+        self.deploy_thread = None
+        self.deploy_worker = None
+        self.closing = False
+        
         
         self.init_ui()
         
@@ -328,11 +574,23 @@ class DeviceSetupWizard(QDialog):
         header_font.setBold(True)
         header.setFont(header_font)
         layout.addWidget(header)
-        
+
+        # Gerätemodell – bestimmt die Tastenkombination für den Setup-Modus
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("Gerätemodell:"))
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(["SoundTouch 10", "SoundTouch 20 / 30"])
+        self.model_combo.currentTextChanged.connect(
+            lambda _: self.update_status(self.status) if self.status == self.STATUS_WAIT_SETUP_NETWORK else None
+        )
+        model_layout.addWidget(self.model_combo)
+        model_layout.addStretch()
+        layout.addLayout(model_layout)
+
         # Instruktionen
         self.instruction_label = QLabel()
         self.instruction_label.setWordWrap(True)
-        self.instruction_label.setStyleSheet("padding: 10px; background-color: #e3f2fd; border-radius: 5px;")
+        self.instruction_label.setStyleSheet("padding: 10px; background-color: #1E2129; border-radius: 8px; color: #E7E9EE;")
         layout.addWidget(self.instruction_label)
         
         # Status Log
@@ -370,12 +628,12 @@ class DeviceSetupWizard(QDialog):
         pw_layout = QHBoxLayout()
         pw_layout.addWidget(QLabel("Passwort:"))
         self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setPlaceholderText("WLAN-Passwort")
         pw_layout.addWidget(self.password_input)
         
         # Passwort sichtbar/versteckt Toggle
-        from PyQt5.QtWidgets import QCheckBox
+        from PyQt6.QtWidgets import QCheckBox
         self.password_visible_checkbox = QCheckBox("Anzeigen")
         self.password_visible_checkbox.toggled.connect(self._on_password_visibility_toggle)
         pw_layout.addWidget(self.password_visible_checkbox)
@@ -435,9 +693,9 @@ class DeviceSetupWizard(QDialog):
     def log(self, message):
         """Nachricht im Log anzeigen"""
         self.log_text.append(message)
-        self.log_text.verticalScrollBar().setValue(
-            self.log_text.verticalScrollBar().maximum()
-        )
+        sb = self.log_text.verticalScrollBar()
+        if sb is not None:
+            sb.setValue(sb.maximum())
     
     def update_status(self, status):
         """Status aktualisieren und UI anpassen"""
@@ -446,17 +704,31 @@ class DeviceSetupWizard(QDialog):
         if status == self.STATUS_IDLE:
             self.instruction_label.setText(
                 "📱 Drücke 'Setup starten' und folge dann den Anweisungen.\n\n"
-                "Der Wizard führt dich durch die Einrichtung eines neuen Bose SoundTouch Geräts."
+                "Der Wizard hilft dir, einen USB-Stick vorzubereiten und das Gerät einzurichten."
             )
             self.start_button.setEnabled(True)
             
         elif status == self.STATUS_WAIT_SETUP_NETWORK:
+            model = self.model_combo.currentText() if hasattr(self, 'model_combo') else "SoundTouch 10"
+            if "20" in model or "30" in model:
+                steps = (
+                    "1. USB-Stick in den Lautsprecher stecken (falls noch nicht geschehen)\n"
+                    "2. Netzstecker ziehen\n"
+                    "3. Taste 4 UND Taste − gedrückt halten\n"
+                    "4. Bei gedrückten Tasten den Netzstecker wieder einstecken\n"
+                    "5. Tasten halten, bis der Setup-Modus startet (WiFi: 'Bose xxxx')\n"
+                    "6. Verbinde deinen PC mit diesem WiFi – der Wizard erkennt den Wechsel"
+                )
+            else:  # SoundTouch 10
+                steps = (
+                    "1. Halte 'Volume −' + 'Preset 1' für 10 Sekunden gedrückt\n"
+                    "2. Lautsprecher startet im Setup-Modus (WiFi: 'Bose xxxx')\n"
+                    "3. Verbinde deinen PC mit diesem WiFi\n"
+                    "4. Der Wizard erkennt den Wechsel automatisch"
+                )
             self.instruction_label.setText(
-                "⚠️ WICHTIG: Wechsle jetzt zum WiFi des Lautsprechers!\n\n"
-                "1. Halte 'Volume -' + 'Bluetooth' für 10 Sekunden gedrückt\n"
-                "2. Lautsprecher startet im Setup-Modus (WiFi: 'Bose xxxx')\n"
-                "3. Verbinde deinen PC mit diesem WiFi\n"
-                "4. Der Wizard erkennt den Wechsel automatisch"
+                f"⚠️ WICHTIG: {model} in den Setup-Modus bringen und zu seinem WiFi wechseln!\n\n"
+                + steps
             )
             self.progress.setVisible(True)
             self.progress.setRange(0, 0)  # Indeterminate
@@ -500,19 +772,31 @@ class DeviceSetupWizard(QDialog):
                 "Verbinde deinen PC wieder mit deinem normalen WLAN.\n"
                 "Der Wizard sucht dann automatisch nach dem Lautsprecher."
             )
-            # Allow WiFi switching helper on Linux
+            # Auto-Versuch, ins Heim-WLAN zurückzukehren; der Netzwerk-Monitor
+            # erkennt zusätzlich einen manuellen Wechsel (Fallback).
             self.switch_wifi_button.setEnabled(True)
+            QTimer.singleShot(300, self.switch_to_home_wifi)
         elif status == self.STATUS_DISCOVERING:
             self.instruction_label.setText(
                 "🔍 Suche nach neuem Lautsprecher...\n\n"
                 "Scanne das Netzwerk nach dem Gerät."
             )
+
+        elif status == self.STATUS_DEPLOYING:
+            self.instruction_label.setText(
+                "🔧 Installiere On-Device Setup per SSH...\n\n"
+                "Stelle sicher, dass der USB-Stick mit 'remote_services' eingesteckt ist."
+            )
+            self.progress.setVisible(True)
+            self.progress.setRange(0, 0)
             
         elif status == self.STATUS_SUCCESS:
             self.instruction_label.setText(
-                "✅ Gerät erfolgreich hinzugefügt!\n\n"
+                "✅ Gerät erfolgreich eingerichtet!\n\n"
                 f"Name: {self.device_name}\n"
-                f"IP: {self.device_ip}"
+                f"IP: {self.device_ip}\n\n"
+                "Der Lautsprecher wird gleich automatisch neu gestartet, damit alle "
+                "Dienste sauber anlaufen (dauert ~1 Minute)."
             )
             self.progress.setVisible(False)
             self.start_button.setEnabled(False)
@@ -531,13 +815,91 @@ class DeviceSetupWizard(QDialog):
     def _on_password_visibility_toggle(self, checked):
         """Toggle Passwort Sichtbarkeit"""
         if checked:
-            self.password_input.setEchoMode(QLineEdit.Normal)
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
         else:
-            self.password_input.setEchoMode(QLineEdit.Password)
+            self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
     
     def start_setup(self):
         """Setup-Prozess starten"""
-        self.log("🚀 Setup gestartet")
+        # USB-Stick automatisch vorbereiten
+        self.log("💾 Suche nach USB-Sticks...")
+        
+        # Finde USB-Sticks (plattformübergreifend: Windows-Laufwerksbuchstaben,
+        # Linux /media & /run/media, macOS /Volumes)
+        try:
+            usb_mounts = find_removable_drives()
+        except Exception as e:
+            usb_mounts = []
+            self.log(f"⚠️ Fehler beim Suchen: {e}")
+        
+        if not usb_mounts:
+            QMessageBox.warning(
+                self,
+                "Kein USB-Stick gefunden",
+                "💾 Bitte stecke einen USB-Stick in deinen PC und versuche es erneut.\n\n"
+                "Der Wizard erstellt automatisch die 'remote_services' Datei.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+        
+        # USB-Stick auswählen
+        selected_usb = None
+        if len(usb_mounts) == 1:
+            selected_usb = usb_mounts[0]
+        else:
+            from PyQt6.QtWidgets import QInputDialog
+            item, ok = QInputDialog.getItem(
+                self, "USB-Stick auswählen",
+                "Mehrere USB-Sticks gefunden. Welchen möchtest du verwenden?",
+                usb_mounts, 0, False
+            )
+            if ok and item:
+                selected_usb = item
+            else:
+                self.log("⚠️ Setup abgebrochen - kein USB-Stick ausgewählt")
+                return
+        
+        # remote_services Datei erstellen
+        try:
+            flag_file = os.path.join(selected_usb, "remote_services")
+            Path(flag_file).touch()
+            self.log(f"✅ Datei erstellt: {flag_file}")
+            
+            # Erfolg-Dialog
+            msg = QMessageBox(self)
+            msg.setWindowTitle("USB-Stick bereit")
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setText(
+                "✅ USB-Stick erfolgreich vorbereitet!\n\n"
+                f"Pfad: {selected_usb}\n"
+                f"Datei: remote_services\n\n"
+                "NÄCHSTE SCHRITTE:\n"
+                "1. Entferne den USB-Stick sicher vom PC\n"
+                "2. Stecke den USB-Stick in den Lautsprecher\n"
+                "3. Warte 10 Sekunden (SSH startet automatisch)\n"
+                "4. Klicke auf 'Ja' um fortzufahren"
+            )
+            msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            msg.setDefaultButton(QMessageBox.StandardButton.No)
+            
+            reply = msg.exec()
+            
+            if reply != QMessageBox.StandardButton.Yes:
+                self.log("⚠️ Setup abgebrochen")
+                return
+            
+            self.log("🚀 Setup gestartet")
+            self.log("📀 USB-Stick sollte jetzt im Gerät stecken")
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Fehler",
+                f"❌ Konnte 'remote_services' nicht erstellen:\n\n{e}\n\n"
+                f"Versuche manuell: touch {selected_usb}/remote_services"
+            )
+            return
+        
         self.update_status(self.STATUS_WAIT_SETUP_NETWORK)
         self.start_button.setEnabled(False)
         
@@ -586,62 +948,40 @@ class DeviceSetupWizard(QDialog):
                 QTimer.singleShot(5000, self.discover_new_device)
     
     def get_current_ssid(self):
-        """Aktuelle SSID ermitteln"""
-        try:
-            import subprocess
-            # Linux
-            result = subprocess.check_output(['iwgetid', '-r'], text=True).strip()
-            return result
-        except:
-            return "unknown"
-    
+        """Aktuelle SSID ermitteln (plattformübergreifend)."""
+        return platform_wifi.current_ssid() or "unknown"
+
     def _get_setup_device_ip(self):
-        """Ermittle wahrscheinliche Setup-IP basierend auf aktueller WLAN-IP."""
+        """Ermittle wahrscheinliche Setup-IP basierend auf der aktuellen Route.
+
+        Interface-namensunabhängig (funktioniert auch unter Windows).
+        """
+        # 1) Bevorzugt: echtes Default-Gateway (der Setup-AP ist im Setup-Modus
+        #    das Gateway des PCs).
         try:
-            # Hole aktuelle WLAN-IP
-            for iface in netifaces.interfaces():
-                if not (iface.startswith('wl') or iface.startswith('wlan') or iface.startswith('wlp')):
-                    continue
-                addrs = netifaces.ifaddresses(iface)
-                if netifaces.AF_INET in addrs:
-                    for addr in addrs[netifaces.AF_INET]:
-                        ip = addr.get('addr')
-                        if ip and ip != '127.0.0.1':
-                            # 1) Bevorzugt: ermittele tatsächliches Default-Gateway für dieses Interface
-                            try:
-                                gws = netifaces.gateways()
-                                # Prüfe Standard-Gateway
-                                default_gw = gws.get('default', {}).get(netifaces.AF_INET)
-                                if default_gw:
-                                    gw_addr, gw_iface = default_gw[0], default_gw[1]
-                                    if gw_iface == iface and gw_addr:
-                                        self.log(f"   WLAN-IP: {ip} → Gateway erkannt: {gw_addr}")
-                                        return gw_addr
+            gw = platform_wifi.default_gateway()
+            if gw:
+                self.log(f"   Gateway erkannt: {gw}")
+                return gw
+        except Exception as e:
+            self.log(f"   Hinweis: Konnte Gateway nicht direkt ermitteln: {e}")
 
-                                # Prüfe alle Gateways nach passendem Interface
-                                for entry in gws.get(netifaces.AF_INET, []):
-                                    try:
-                                        gw_addr, gw_iface, _flags = entry
-                                    except ValueError:
-                                        gw_addr, gw_iface = entry  # ältere netifaces-Version
-                                    if gw_iface == iface and gw_addr:
-                                        self.log(f"   WLAN-IP: {ip} → Gateway erkannt: {gw_addr}")
-                                        return gw_addr
-                            except Exception as ge:
-                                self.log(f"   Hinweis: Konnte Gateway nicht direkt ermitteln: {ge}")
-
-                            # 2) Fallback: ersetze letztes Oktett mit .1
-                            parts = ip.split('.')
-                            if len(parts) == 4:
-                                gateway_ip = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
-                                self.log(f"   WLAN-IP: {ip} → Gateway (heuristisch): {gateway_ip}")
-                                return gateway_ip
+        # 2) Fallback: aktive IP holen und letztes Oktett durch .1 ersetzen.
+        try:
+            _iface, ip = platform_wifi.active_ip()
+            parts = ip.split('.') if ip else []
+            if len(parts) == 4:
+                gateway_ip = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
+                self.log(f"   WLAN-IP: {ip} → Gateway (heuristisch): {gateway_ip}")
+                return gateway_ip
         except Exception as e:
             self.log(f"   Fehler beim Ermitteln der Gateway-IP: {e}")
         return None
     
     def find_setup_device(self):
         """Gerät im Setup-Modus finden"""
+        if self.closing:
+            return
         self.log("🔍 Suche Gerät im Setup-Modus...")
         
         # Versuche zuerst die wahrscheinliche IP aus dem aktuellen Netzwerk
@@ -687,7 +1027,27 @@ class DeviceSetupWizard(QDialog):
     def _on_setup_device_found(self, ip, name, device_id):
         """Callback wenn Setup-Gerät gefunden wurde"""
         self.device_ip = ip
+        self.setup_device_id = device_id
         self.log(f"✅ Gerät gefunden: {name} auf {ip}")
+        # Capture MAC and serial numbers from /info for robust matching later
+        try:
+            info = SoundTouchController(ip, timeout=3).get_info()
+            if info:
+                self.setup_device_mac = info.get('mac') or self.setup_device_mac
+                comps = info.get('components') or []
+                for c in comps:
+                    sn = c.get('serialNumber')
+                    if sn:
+                        self.setup_device_serials.add(sn)
+                if self.setup_device_mac:
+                    self.log(f"   Zielgerät MAC: {self.setup_device_mac}")
+                if self.setup_device_serials:
+                    self.log(f"   Seriennummer(n): {', '.join(sorted(self.setup_device_serials))}")
+        except Exception:
+            pass
+        
+        # Hinweis: Keine Proxy-Konfiguration mehr erforderlich
+        
         self.update_status(self.STATUS_CONNECTED_TO_DEVICE)
     
     def _on_setup_device_not_found(self):
@@ -699,6 +1059,8 @@ class DeviceSetupWizard(QDialog):
     
     def send_wifi_config(self):
         """WiFi-Konfiguration an Gerät senden"""
+        if self.closing:
+            return
         ssid = self.ssid_combo.currentText().strip()
         password = self.password_input.text()
         security = self.security_combo.currentText()
@@ -716,6 +1078,12 @@ class DeviceSetupWizard(QDialog):
         self.send_wifi_button.setEnabled(False)
         self.scan_wifi_button.setEnabled(False)
         
+        # Safety: Stelle sicher, dass eine Geräte-IP vorhanden ist
+        if not self.device_ip:
+            self.log("❌ Kein Gerät verbunden – bitte erst Setup-Gerät finden")
+            self.update_status(self.STATUS_ERROR)
+            return
+
         # Erstelle Worker
         self.wifi_config_worker = WiFiConfigSendWorker(
             SoundTouchController(self.device_ip, timeout=10),
@@ -767,10 +1135,17 @@ class DeviceSetupWizard(QDialog):
     
     def scan_wifi_networks(self):
         """Scanne verfügbare WiFi-Netzwerke"""
+        if self.closing:
+            return
         self.log("🔍 Scanne verfügbare Netzwerke (dies kann bis zu 1 Minute dauern)...")
         self.scan_wifi_button.setEnabled(False)
         self.send_wifi_button.setEnabled(False)
         
+        if not self.device_ip:
+            self.log("❌ Kein Gerät verbunden – Scan nicht möglich")
+            self.scan_wifi_button.setEnabled(True)
+            return
+
         # Erstelle Worker mit erhöhtem Timeout (Scan kann lange dauern)
         self.wifi_scan_worker = WiFiScanWorker(
             SoundTouchController(self.device_ip, timeout=90)
@@ -857,6 +1232,8 @@ class DeviceSetupWizard(QDialog):
         Monitor the device's reconnection to the home network after WiFi configuration.
         Runs in a separate thread to avoid blocking the UI.
         """
+        if self.closing:
+            return
         # Erstelle Worker
         self.reconnection_worker = DeviceReconnectionWorker(controller, target_ssid)
         
@@ -896,35 +1273,33 @@ class DeviceSetupWizard(QDialog):
                 self,
                 "Verbindung fehlgeschlagen",
                 "Gerät konnte sich nicht verbinden. Erneut versuchen?",
-                QMessageBox.Yes | QMessageBox.No
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
-            if retry == QMessageBox.Yes:
+            if retry == QMessageBox.StandardButton.Yes:
                 self.send_wifi_config()
 
     def switch_to_home_wifi(self):
-        """Attempt to switch PC back to selected home WiFi using nmcli (Linux)."""
-        import subprocess
+        """Versuche, den PC zurück ins gewählte Heim-WLAN zu verbinden (plattformübergreifend)."""
         ssid = self.ssid_combo.currentText().strip()
         password = self.password_input.text()
         if not ssid:
             self.log("❌ Keine SSID ausgewählt")
             return
-        self.log(f"🔁 Verbinde PC mit '{ssid}'...")
+        self.log(f"🔁 Verbinde PC mit '{ssid}'… ({platform_wifi.backend_name()})")
         try:
-            # Try connect via NetworkManager
-            if password:
-                cmd = ["nmcli", "dev", "wifi", "connect", ssid, "password", password]
+            ok, msg = platform_wifi.connect(ssid, password=password or None, confirm_timeout=20)
+            if ok:
+                self.log("✅ PC mit Heim-WLAN verbunden")
             else:
-                cmd = ["nmcli", "dev", "wifi", "connect", ssid]
-            subprocess.check_call(cmd)
-            self.log("✅ PC mit Heim-WLAN verbunden")
-        except FileNotFoundError:
-            self.log("⚠️ 'nmcli' nicht gefunden. Bitte manuell ins Heim-WLAN wechseln.")
-        except subprocess.CalledProcessError as e:
+                self.log(f"⚠️ Automatischer Wechsel nicht bestätigt: {msg}")
+                self.log("   Bitte ggf. manuell ins Heim-WLAN wechseln – der Wizard erkennt den Wechsel automatisch.")
+        except Exception as e:  # noqa: BLE001
             self.log(f"❌ WLAN-Wechsel fehlgeschlagen: {e}")
     
     def connect_to_setup_wifi_auto(self):
         """Attempt to automatically connect PC to the speaker's setup WiFi (Linux, NetworkManager)."""
+        if self.closing:
+            return
         # Erstelle Worker
         self.connect_setup_worker = ConnectSetupWiFiWorker()
         
@@ -956,6 +1331,8 @@ class DeviceSetupWizard(QDialog):
     
     def discover_new_device(self):
         """Nach neuem Gerät im Heim-WLAN suchen"""
+        if self.closing:
+            return
         self.log("🔍 Scanne Netzwerk nach neuem Gerät (Timeout: 60 Sekunden)...")
         
         # Erstelle Worker
@@ -976,36 +1353,149 @@ class DeviceSetupWizard(QDialog):
         # Starte Thread
         self.discover_thread.start()
     
+    def _is_target_device(self, dev: dict) -> bool:
+        """Check if discovered device matches the setup target.
+        Prefer deviceID; fallback to MAC, then serial numbers.
+        """
+        if not dev:
+            return False
+        did = (dev.get('deviceID') or '').strip()
+        if self.setup_device_id and did and did == self.setup_device_id:
+            return True
+        mac = (dev.get('mac') or '').strip()
+        if self.setup_device_mac and mac and mac.lower() == self.setup_device_mac.lower():
+            return True
+        comps = dev.get('components') or []
+        if self.setup_device_serials and comps:
+            for c in comps:
+                sn = (c.get('serialNumber') or '').strip()
+                if sn and sn in self.setup_device_serials:
+                    return True
+        return False
+
     def _on_devices_found(self, devices):
         """Callback wenn Device-Discovery abgeschlossen ist"""
         self.log(f"   {len(devices)} Gerät(e) gefunden")
         
         if devices:
-            # Nehme erstes Gerät (oder zeige Liste wenn mehrere)
-            device = devices[0]
-            self.device_ip = device['ip']
-            self.device_name = device['name']
+            # Suche gezielt nach dem zuvor konfigurierten Gerät
+            target = None
+            for d in devices:
+                if self._is_target_device(d):
+                    target = d
+                    break
+            if target is None:
+                self.log("⚠️  Kein exaktes Match für das eingerichtete Gerät gefunden – weiter suchen...")
+                # Erneut scannen nach kurzer Wartezeit
+                if not self.closing:
+                    QTimer.singleShot(8000, self.discover_new_device)
+                return
             
-            self.log(f"✅ Gerät gefunden: {self.device_name} ({self.device_ip})")
+            self.device_ip = target['ip']
+            self.device_name = target['name']
+            self.log(f"✅ Zielgerät bestätigt: {self.device_name} ({self.device_ip})")
             
-            # Beende Setup-Modus (schaltet Setup-WiFi-Hotspot aus)
-            self.log("🔒 Beende Setup-Modus...")
+            # Beende Setup-Modus - dadurch startet das Gerät Cloud-Kommunikation
+            self.log("🔧 Beende Setup-Modus (triggert Cloud-Konfiguration)...")
             try:
-                controller = SoundTouchController(self.device_ip)
-                if controller.set_setup_state("SETUP_WIFI_LEAVE"):
+                controller = SoundTouchController(self.device_ip, timeout=10)
+                if controller.set_setup_state("SETUP_LEAVE"):
                     self.log("✅ Setup-Modus beendet")
+                    self.log("⏳ Gerät führt die Konfiguration nun eigenständig fort...")
+                    
+                    # Warte 5 Sekunden und prüfe dann Status
+                    if not self.closing:
+                        QTimer.singleShot(5000, self._check_configuration_status)
                 else:
-                    self.log("⚠️ Setup-Modus konnte nicht beendet werden (Gerät ist möglicherweise bereits im Normalbetrieb)")
+                    self.log("⚠️  Setup-Modus konnte nicht beendet werden")
+                    # Versuche trotzdem Status zu prüfen
+                    if not self.closing:
+                        QTimer.singleShot(5000, self._check_configuration_status)
             except Exception as e:
-                self.log(f"⚠️ Fehler beim Beenden des Setup-Modus: {e}")
-            
-            self.update_status(self.STATUS_SUCCESS)
-            
-            # Frage ob Name geändert werden soll
-            QTimer.singleShot(1000, self.ask_rename_device)
+                self.log(f"⚠️  Fehler beim Beenden des Setup-Modus: {e}")
+                # Versuche trotzdem Status zu prüfen
+                if not self.closing:
+                    QTimer.singleShot(5000, self._check_configuration_status)
         else:
             self.log("❌ Kein Gerät gefunden. Warte noch 15 Sekunden...")
             QTimer.singleShot(15000, self.discover_new_device)
+    
+    def _check_configuration_status(self):
+        """Prüfe Erreichbarkeit nach Setup und schließe ab."""
+        try:
+            if self.closing:
+                return
+            if not self.device_ip:
+                self.log("⚠️ Keine Geräte-IP vorhanden – schließe Setup ab")
+                self._finalize_setup()
+                return
+            controller = SoundTouchController(self.device_ip, timeout=5)
+            # Einfache Prüflogik: ist das Gerät erreichbar, fahren wir fort
+            info = controller.get_info()
+            if info:
+                self.log("✅ Gerät ist erreichbar und im Heim-WLAN online")
+                self.run_on_device_setup()
+            else:
+                self.log("⏳ Gerät noch nicht erreichbar – prüfe erneut in 5s")
+                if not self.closing:
+                    QTimer.singleShot(5000, self._check_configuration_status)
+        except Exception as e:
+            self.log(f"⚠️  Fehler beim Status-Check: {e}")
+            if not self.closing:
+                QTimer.singleShot(5000, self._check_configuration_status)
+    
+    def run_on_device_setup(self):
+        """Führt das SSH-basierte On-Device-Setup aus (Autostart, NAT, Mock, Dienste)."""
+        if self.closing:
+            return
+        if not self.device_ip:
+            self.log("❌ Keine Geräte-IP für Deployment vorhanden")
+            self.update_status(self.STATUS_ERROR)
+            return
+
+        # Nochmal USB-Check vor SSH-Zugriff
+        reply = QMessageBox.question(
+            self,
+            "USB-Stick im Gerät?",
+            "📌 Für das On-Device-Setup benötigen wir SSH-Zugriff.\n\n"
+            "Stelle sicher, dass der USB-Stick mit 'remote_services' noch im Gerät eingesteckt ist!\n\n"
+            "USB-Stick drin?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            self.log("⚠️ Deployment abgebrochen - bitte USB-Stick einstecken und erneut versuchen")
+            self.update_status(self.STATUS_ERROR)
+            return
+
+        self.update_status(self.STATUS_DEPLOYING)
+        self.deploy_worker = DeviceDeployWorker(self.device_ip, Path(__file__).resolve().parent)
+        self.deploy_thread = QThread()
+        self.deploy_worker.moveToThread(self.deploy_thread)
+
+        self.deploy_thread.started.connect(self.deploy_worker.run)
+        self.deploy_worker.progress.connect(self.log)
+        self.deploy_worker.finished.connect(self._on_deploy_finished)
+        self.deploy_worker.finished.connect(self.deploy_thread.quit)
+        self.deploy_thread.finished.connect(self.deploy_worker.deleteLater)
+        self.deploy_thread.finished.connect(self.deploy_thread.deleteLater)
+
+        self.deploy_thread.start()
+
+    def _on_deploy_finished(self, success: bool, error_msg: str):
+        if success:
+            self.log("✅ On-Device Setup abgeschlossen.")
+            self._finalize_setup()
+        else:
+            self.log(f"❌ On-Device Setup fehlgeschlagen: {error_msg}")
+            self.update_status(self.STATUS_ERROR)
+
+    def _finalize_setup(self):
+        """Setup abschließen."""
+        self.update_status(self.STATUS_SUCCESS)
+        
+        # Frage ob Name geändert werden soll
+        QTimer.singleShot(1000, self.ask_rename_device)
     
     def ask_rename_device(self):
         """Frage ob Gerät umbenannt werden soll"""
@@ -1013,11 +1503,11 @@ class DeviceSetupWizard(QDialog):
             self,
             "Gerät umbenennen?",
             f"Möchtest du das Gerät '{self.device_name}' umbenennen?",
-            QMessageBox.Yes | QMessageBox.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
-        if reply == QMessageBox.Yes:
-            from PyQt5.QtWidgets import QInputDialog
+        if reply == QMessageBox.StandardButton.Yes:
+            from PyQt6.QtWidgets import QInputDialog
             new_name, ok = QInputDialog.getText(self, "Neuer Name",
                                                "Neuer Gerätename:",
                                                text=self.device_name)
@@ -1027,7 +1517,36 @@ class DeviceSetupWizard(QDialog):
         else:
             self.log("✅ Setup abgeschlossen!")
             self.log(f"Gerät '{self.device_name}' erfolgreich hinzugefügt! IP: {self.device_ip}")
-    
+
+        # Zum Abschluss: Gerät per SSH neu starten (bestätigt die rc.local-Persistenz)
+        self._reboot_device()
+
+    def _reboot_device(self):
+        """Startet den Lautsprecher per SSH neu (fire-and-forget)."""
+        if not self.device_ip:
+            return
+        self.log("🔄 Starte den Lautsprecher neu (per SSH)…")
+        ssh_base = [
+            "ssh",
+            "-o", "HostKeyAlgorithms=+ssh-rsa",
+            "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", f"UserKnownHostsFile={os.devnull}",
+            "-o", "ConnectTimeout=8",
+            f"root@{self.device_ip}",
+        ]
+        no_window = 0x08000000 if sys.platform.startswith("win") else 0
+        try:
+            # Reboot im Hintergrund -> ssh kehrt sofort zurück, Box rebootet ~1s später
+            subprocess.run(
+                ssh_base + ["(sleep 1; reboot) >/dev/null 2>&1 &"],
+                timeout=10, creationflags=no_window,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            self.log("✅ Neustart ausgelöst – in ~1 Minute ist der Lautsprecher wieder da.")
+        except Exception as e:
+            self.log(f"⚠️ Reboot per SSH nicht möglich: {e} – bitte den Lautsprecher manuell neu starten.")
+
     def rename_device(self, new_name):
         """Gerät umbenennen"""
         self.log(f"✏️ Benenne Gerät um: '{self.device_name}' → '{new_name}'")
@@ -1046,16 +1565,63 @@ class DeviceSetupWizard(QDialog):
         except Exception as e:
             self.log(f"❌ Fehler beim Umbenennen: {e}")
     
-    def closeEvent(self, event):
-        """Dialog wird geschlossen"""
+    def _shutdown_threads(self):
+        """Beendet alle Hintergrund-Threads sauber. Idempotent.
+
+        WIRD SOWOHL von closeEvent (X-Button) ALS AUCH von done() (OK/Verlassen/
+        Escape) aufgerufen – reject() löst KEIN closeEvent aus, deshalb muss die
+        Aufräumung auch hier hängen, sonst 'QThread destroyed while running'.
+        """
+        if getattr(self, '_threads_stopped', False):
+            return
+        self._threads_stopped = True
+        self.closing = True
+
         if self.network_monitor:
-            self.network_monitor.stop()
-            self.network_monitor.wait()
+            try:
+                self.network_monitor.stop()
+                self.network_monitor.wait(3000)
+            except Exception:
+                pass
+
+        def _stop_thread(t):
+            try:
+                if t and t.isRunning():
+                    t.requestInterruption()
+                    t.quit()
+                    t.wait(2000)
+                    if t.isRunning():
+                        t.terminate()
+                        t.wait(1000)
+            except Exception:
+                pass
+
+        _stop_thread(getattr(self, 'find_setup_thread', None))
+        _stop_thread(getattr(self, 'wifi_config_thread', None))
+        _stop_thread(getattr(self, 'wifi_scan_thread', None))
+        _stop_thread(getattr(self, 'reconnection_thread', None))
+        _stop_thread(getattr(self, 'connect_setup_thread', None))
+        _stop_thread(getattr(self, 'discover_thread', None))
+        # Läuft am ENDE des Setups (SSH-Deploy)
+        _stop_thread(getattr(self, 'deploy_thread', None))
+
+    def closeEvent(self, event):
+        """Dialog wird über das Fenster-X geschlossen."""
+        self._shutdown_threads()
         event.accept()
+
+    def done(self, result):
+        """Fängt OK/Verlassen (reject/accept)/Escape ab – dort kein closeEvent."""
+        self._shutdown_threads()
+        super().done(result)
+
+
+# Alias für den simplen Dialog-Namen, damit simple_soundtouch_v3 das Setup findet
+DeviceSetupDialog = DeviceSetupWizard
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     wizard = DeviceSetupWizard()
     wizard.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

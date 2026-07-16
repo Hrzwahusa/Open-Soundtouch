@@ -164,12 +164,15 @@ class DLNAHelper:
 
         current_uri_metadata = html.escape(didl_lite)
 
+        # Escape the resource URL for use in SOAP XML body
+        resource_url_escaped_for_soap = html.escape(resource_url) if resource_url else ""
+        
         soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
     <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
       <InstanceID>0</InstanceID>
-      <CurrentURI>{resource_url}</CurrentURI>
+      <CurrentURI>{resource_url_escaped_for_soap}</CurrentURI>
       <CurrentURIMetaData>{current_uri_metadata}</CurrentURIMetaData>
     </u:SetAVTransportURI>
   </s:Body>
@@ -185,6 +188,9 @@ class DLNAHelper:
 
         try:
             response = requests.post(url, data=soap_body, headers=headers, timeout=self.timeout)
+            if response.status_code != 200:
+                print(f"[DLNA] SetAVTransportURI failed: HTTP {response.status_code}")
+                print(f"[DLNA] Response: {response.text[:300]}")
             return response.status_code == 200
         except Exception as e:
             print(f"[DLNA] SetAVTransportURI error: {e}")

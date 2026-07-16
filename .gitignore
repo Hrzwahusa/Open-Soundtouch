@@ -30,9 +30,13 @@ Thumbs.db
 .coverage
 htmlcov/
 
+# Local holding area for unused/legacy files
+ignore/
+
+# Runtime data written by the app (device/group/favorites state)
+soundtouch_devices.json
+group_config.json
+radio_favorites.json
+
 # Local audio/test artifacts
-test_music/
-minidlna_opensoundtouch/
 wireshark_log.pcapng
-soundtouch_devices.json
-soundtouch_devices.json
