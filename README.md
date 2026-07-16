@@ -1,8 +1,12 @@
 # 🔊 Open SoundTouch
 
+[![Latest release](https://img.shields.io/github/v/release/Hrzwahusa/Open-Soundtouch?label=download&color=F5A623)](https://github.com/Hrzwahusa/Open-Soundtouch/releases/latest)
+
 **An open replacement for the discontinued Bose SoundTouch app – keeps SoundTouch speakers (10 / 20 / 30) alive without the Bose cloud.**
 
 You can join the closed Beta Test for android at https://hrzwahusa.github.io/Open-Soundtouch/index.html
+
+📥 **Windows (desktop):** download the latest portable build from the [**Releases**](https://github.com/Hrzwahusa/Open-Soundtouch/releases/latest) page — unzip and run `Open SoundTouch.exe` (keep its `_internal` folder next to it).
 
 Bose shut down the cloud and the app for the SoundTouch line. This project brings the speakers back – locally, cloud-free – via the device's own SoundTouch Web API plus a small helper system installed permanently on the speaker.
 
