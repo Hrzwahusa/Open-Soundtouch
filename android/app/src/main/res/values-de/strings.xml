@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_desc">Leitet die Lautstärketasten des Handys an den Lautsprecher weiter, solange Audio-Streaming aktiv ist.</string>
+
+    <!-- Top bar / device list -->
+    <string name="app_title">🔊 Open SoundTouch</string>
+    <string name="find_devices">🔄 Geräte suchen</string>
+    <string name="ip_direct">IP direkt</string>
+    <string name="connect">Verbinden</string>
+    <string name="devices_header">Geräte:</string>
+
+    <!-- Groups -->
+    <string name="groups_title">🔗 Multiroom-Gruppen</string>
+    <string name="no_groups_saved">Noch keine Gruppen gespeichert.</string>
+    <string name="group_members">%1$d Geräte · Master %2$s</string>
+    <string name="need_two_devices">Für eine neue Gruppe mindestens 2 Geräte finden bzw. per IP hinzufügen.</string>
+    <string name="new_group">Neue Gruppe:</string>
+    <string name="master_yes">👑 Master</string>
+    <string name="master_ask">Master?</string>
+    <string name="group_name">Gruppenname</string>
+    <string name="create_group">Gruppe erstellen &amp; aktivieren</string>
+
+    <!-- Control panel -->
+    <string name="back_devices">↩ Geräte</string>
+    <string name="playback">Wiedergabe</string>
+    <string name="volume_fmt">Lautstärke: %1$s</string>
+    <string name="rename">Umbenennen</string>
+    <string name="open_radio">📻 Internetradio suchen</string>
+    <string name="stream_url_title">Stream-URL abspielen (DLNA)</string>
+    <string name="play">▶️ Abspielen</string>
+
+    <!-- Group volume section -->
+    <string name="group_prefix">🔗 %1$s</string>
+    <string name="group_label">🔗 Gruppe: %1$s</string>
+    <string name="dissolve">Auflösen</string>
+    <string name="all_balance">Alle (Balance)</string>
+    <string name="individual">Einzeln:</string>
+
+    <!-- Capture -->
+    <string name="capture_title">🎧 Handy-Audio streamen</string>
+    <string name="needs_android10">Benötigt Android 10 oder neuer.</string>
+    <string name="capture_desc">Spielt das Audio dieses Handys auf dem Lautsprecher (DRM-geschützte Apps blockieren die Aufnahme evtl.).</string>
+    <string name="capture_keys_hint">Während des Streamings regeln die Lautstärketasten des Handys die Box/Gruppe (systemweit).</string>
+    <string name="mute_phone">Handy-Lautsprecher stummschalten</string>
+    <string name="start_streaming">▶️ Streaming starten</string>
+    <string name="stop_streaming">⏹ Streaming stoppen</string>
+
+    <!-- Presets -->
+    <string name="presets_title">🎛 Presets (physische Tasten)</string>
+    <string name="checking_ssh">Prüfe SSH-Verbindung…</string>
+    <string name="ssh_unreachable">Box per SSH nicht erreichbar — On-Device-Setup nötig.</string>
+    <string name="empty_slot">— leer —</string>
+    <string name="no_favorites_hint">Erst Favoriten anlegen, dann hier einer Taste zuweisen.</string>
+    <string name="assign_favorite">Favorit einer Taste zuweisen:</string>
+
+    <!-- Radio page -->
+    <string name="radio_title">📻 Internetradio</string>
+    <string name="back">↩ Zurück</string>
+    <string name="search_stations">Sender suchen</string>
+    <string name="search">Suchen</string>
+    <string name="results">Ergebnisse</string>
+    <string name="favorites_header">❤ Favoriten</string>
+    <string name="source_tunein">TuneIn</string>
+
+    <!-- Misc -->
+    <string name="now_playing">Now Playing</string>
+    <string name="status_fmt">Status: %1$s</string>
+    <string name="language">Sprache</string>
+</resources>
