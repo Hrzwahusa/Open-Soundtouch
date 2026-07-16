@@ -164,7 +164,7 @@ class SystemAudioCapture:
             return {
                 'available': True,
                 'method': 'wasapi_loopback',
-                'message': 'Bereit',
+                'message': 'Ready',
             }
         # Fallback: alter dshow/'Stereo Mix'-Weg (braucht ffmpeg)
         if self.ffmpeg_bin:

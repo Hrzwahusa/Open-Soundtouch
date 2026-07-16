@@ -634,7 +634,7 @@ class DeviceSetupWizard(QDialog):
         
         # Passwort sichtbar/versteckt Toggle
         from PyQt6.QtWidgets import QCheckBox
-        self.password_visible_checkbox = QCheckBox("Anzeigen")
+        self.password_visible_checkbox = QCheckBox("Show")
         self.password_visible_checkbox.toggled.connect(self._on_password_visibility_toggle)
         pw_layout.addWidget(self.password_visible_checkbox)
         
@@ -674,7 +674,7 @@ class DeviceSetupWizard(QDialog):
         self.start_button.clicked.connect(self.start_setup)
         button_layout.addWidget(self.start_button)
         
-        self.send_wifi_button = QPushButton("📤 WiFi senden")
+        self.send_wifi_button = QPushButton("📤 Send WiFi information")
         self.send_wifi_button.setEnabled(False)
         self.send_wifi_button.clicked.connect(self.send_wifi_config)
         button_layout.addWidget(self.send_wifi_button)

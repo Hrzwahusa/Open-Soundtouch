@@ -599,10 +599,10 @@ class SimpleSoundTouchGUI(QMainWindow):
 
         add_group = QGroupBox("➕ Add favorite")
         add_layout = QVBoxLayout()
-        add_layout.addWidget(QLabel("Name und direkte Stream-URL (http):"))
+        add_layout.addWidget(QLabel("Name and direct Stream-URL (http):"))
         row = QHBoxLayout()
         self.fav_name_input = QLineEdit()
-        self.fav_name_input.setPlaceholderText("Name, z. B. Rock Antenne")
+        self.fav_name_input.setPlaceholderText("Name, i.e. Rock Antenne")
         self.fav_url_input = QLineEdit()
         self.fav_url_input.setPlaceholderText("http://stream.…/stream.mp3")
         row.addWidget(self.fav_name_input)

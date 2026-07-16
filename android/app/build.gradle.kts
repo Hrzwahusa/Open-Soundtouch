@@ -13,8 +13,8 @@ android {
         applicationId = "com.hrzwahusa.opensoundtouch"
         minSdk = 26          // Android 8; audio-capture (Phase 5) requires 29+ and is gated
         targetSdk = 36       // Play requires >= 35 now, 36 from Aug 2026
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "1.0.0"
     }
 
     buildTypes {
