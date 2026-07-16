@@ -34,7 +34,6 @@ from system_audio_capture import SystemAudioCapture
 DEVICE_SETUP_AVAILABLE = True  # lazy import inside handler
 
 from app_theme import APP_STYLE
-import i18n
 
 
 class Signals(QObject):
@@ -907,21 +906,7 @@ class SimpleSoundTouchGUI(QMainWindow):
         font.setBold(True)
         settings_label.setFont(font)
         layout.addWidget(settings_label)
-
-        # Language / Sprache  (switching restarts the app)
-        lang_group = QGroupBox(i18n.t("language"))
-        lang_layout = QHBoxLayout()
-        self._lang_codes = list(i18n.LANGS.keys())
-        self.lang_combo = QComboBox()
-        for code in self._lang_codes:
-            self.lang_combo.addItem(i18n.LANGS[code])
-        self.lang_combo.setCurrentIndex(self._lang_codes.index(i18n.current_language()))
-        self.lang_combo.currentIndexChanged.connect(self._change_language)
-        lang_layout.addWidget(self.lang_combo)
-        lang_layout.addStretch()
-        lang_group.setLayout(lang_layout)
-        layout.addWidget(lang_group)
-
+        
         if DEVICE_SETUP_AVAILABLE:
             btn_setup = QPushButton("📱 Setup New Device")
             btn_setup.clicked.connect(self._open_device_setup)
@@ -944,28 +929,6 @@ class SimpleSoundTouchGUI(QMainWindow):
 
         layout.addStretch()
         return tab
-
-    def _change_language(self, index):
-        """Switch UI language (English/German) and restart the app to apply it."""
-        codes = getattr(self, "_lang_codes", [])
-        if index < 0 or index >= len(codes):
-            return
-        code = codes[index]
-        if code == i18n.current_language():
-            return
-        reply = QMessageBox.question(
-            self, i18n.t("restart_title"), i18n.t("restart_msg"),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            i18n.set_language(code)
-            i18n.restart_app()
-            QApplication.quit()
-        else:
-            self.lang_combo.blockSignals(True)
-            self.lang_combo.setCurrentIndex(codes.index(i18n.current_language()))
-            self.lang_combo.blockSignals(False)
 
     def _rename_device(self):
         """Benennt den aktuell ausgewählten einzelnen Lautsprecher um."""
