@@ -2,7 +2,10 @@ package com.opensoundtouch
 
 import android.Manifest
 import android.app.Activity
+import android.app.LocaleManager
+import android.content.Context
 import android.media.projection.MediaProjectionManager
+import android.os.LocaleList
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
@@ -102,8 +105,14 @@ class MainActivity : ComponentActivity() {
 }
 
 /** Switch the whole app between English and German (recreates the activity). */
-private fun setAppLanguage(tag: String) {
-    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tag))
+private fun setAppLanguage(context: Context, tag: String) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // Framework per-app locale (API 33+): triggers activity recreation itself.
+        context.getSystemService(LocaleManager::class.java)
+            ?.applicationLocales = LocaleList.forLanguageTags(tag)
+    } else {
+        AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(tag))
+    }
 }
 
 @Composable
@@ -117,9 +126,10 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(stringResource(R.string.app_title), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            val ctx = LocalContext.current
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { setAppLanguage("en") }) { Text("EN") }
-                TextButton(onClick = { setAppLanguage("de") }) { Text("DE") }
+                TextButton(onClick = { setAppLanguage(ctx, "en") }) { Text("EN") }
+                TextButton(onClick = { setAppLanguage(ctx, "de") }) { Text("DE") }
             }
         }
         Spacer(Modifier.height(12.dp))
