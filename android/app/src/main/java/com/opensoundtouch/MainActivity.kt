@@ -262,6 +262,21 @@ private fun ControlPanel(vm: MainViewModel, onOpenRadio: () -> Unit) {
             Text(stringResource(R.string.open_radio))
         }
 
+        if (s.favorites.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text(stringResource(R.string.favorites_header), fontWeight = FontWeight.SemiBold)
+            val tunein = stringResource(R.string.source_tunein)
+            s.favorites.forEach { fav ->
+                StationRow(
+                    title = fav.name,
+                    subtitle = if (fav.guideId.isNotBlank()) tunein else fav.url,
+                    onPlay = { vm.playFavorite(fav) },
+                    actionLabel = "🗑",
+                    onAction = { vm.removeFavorite(fav) },
+                )
+            }
+        }
+
         if (s.selectedGroup == null) {
             Spacer(Modifier.height(16.dp))
             PresetSection(vm, dev.ip, s.sshReachable, s.presets, s.favorites)
