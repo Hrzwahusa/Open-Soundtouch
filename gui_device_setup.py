@@ -866,6 +866,11 @@ class DeviceSetupWizard(QDialog):
             self.log(f"✅ Datei erstellt: {flag_file}")
             
             # Erfolg-Dialog
+            _m = self.model_combo.currentText() if hasattr(self, 'model_combo') else ""
+            _otg = (
+                "   ⚠️ SoundTouch 10: über einen micro-USB-OTG-Adapter einstecken\n"
+                "      (die Box hat keinen USB-A-Port).\n"
+            ) if "10" in _m else ""
             msg = QMessageBox(self)
             msg.setWindowTitle("USB-Stick bereit")
             msg.setIcon(QMessageBox.Icon.Information)
@@ -876,6 +881,7 @@ class DeviceSetupWizard(QDialog):
                 "NÄCHSTE SCHRITTE:\n"
                 "1. Entferne den USB-Stick sicher vom PC\n"
                 "2. Stecke den USB-Stick in den Lautsprecher\n"
+                + _otg +
                 "3. Warte 10 Sekunden (SSH startet automatisch)\n"
                 "4. Klicke auf 'Ja' um fortzufahren"
             )

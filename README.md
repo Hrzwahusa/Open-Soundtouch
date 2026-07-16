@@ -73,6 +73,8 @@ The wizard (Settings → "📱 Setup New Device") walks you through:
 5. **Deploy the on-device system** – scripts are installed and started over SSH.
 6. **Automatic reboot** – the wizard reboots the speaker itself over SSH at the end (confirms persistence).
 
+> ⚠️ **SoundTouch 10** has a **micro-USB** port (not USB-A), so you need a cheap [micro-USB OTG adapter](https://www.amazon.de/s?k=micro+usb+otg+adapter) to plug the stick in. Any generic OTG adapter and any small FAT32 stick will do.
+
 Afterwards SSH is permanently enabled and the preset/radio system runs autonomously – the USB stick is no longer needed.
 
 ---
